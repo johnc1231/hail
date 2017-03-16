@@ -922,8 +922,8 @@ class VariantDatasetFunctions(private val vds: VariantSampleMatrix[Genotype]) ex
 
 
 
-  def rrm(): RelatednessMatrix = {
-    new RelatednessMatrix(ComputeRRM(vds, true)._1, vds.sampleIds.toArray)
+  def rrm(): Unit = {
+    //new RelatednessMatrix(ComputeRRM(vds, true)._1, vds.sampleIds.toArray)
   }
   
   def sampleQC(): VariantDataset = SampleQC(vds)
