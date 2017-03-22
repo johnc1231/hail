@@ -844,19 +844,17 @@ class VariantDatasetFunctions(private val vds: VariantSampleMatrix[Genotype]) ex
     LinearRegression(vds, ySA, covSA, root, minAC, minAF)
   }
 
-  def lmmreg(kinshipVDS: VariantDataset, ySA: String,
+  def lmmreg(kinshipMatrix: KinshipMatrix, ySA: String,
     covSA: Array[String],
     useML: Boolean,
     rootGA: String,
     rootVA: String,
     runAssoc: Boolean,
     optDelta: Option[Double],
-    sparsityThreshold: Double,
-    forceBlock: Boolean,
-    forceGrammian: Boolean): VariantDataset = {
+    sparsityThreshold: Double): VariantDataset = {
     requireSplit("linear mixed regression")
-    LinearMixedRegression(vds, kinshipVDS, ySA, covSA, useML, rootGA, rootVA,
-      runAssoc, optDelta, sparsityThreshold, forceBlock, forceGrammian)
+    LinearMixedRegression(vds, kinshipMatrix, ySA, covSA, useML, rootGA, rootVA,
+      runAssoc, optDelta, sparsityThreshold)
   }
 
   def logreg(test: String, ySA: String, covSA: Array[String], root: String): VariantDataset = {
@@ -922,8 +920,8 @@ class VariantDatasetFunctions(private val vds: VariantSampleMatrix[Genotype]) ex
 
 
 
-  def rrm(): RelatednessMatrix = {
-    new RelatednessMatrix(ComputeRRM(vds, true)._1, vds.sampleIds.toArray)
+  def rrm(forceBlock : Boolean = false, forceGramian : Boolean = false): KinshipMatrix = {
+    new KinshipMatrix(ComputeRRM(vds, forceBlock, forceGramian)._1, vds.sampleIds.toArray)
   }
   
   def sampleQC(): VariantDataset = SampleQC(vds)
