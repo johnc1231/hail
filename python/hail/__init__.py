@@ -5,6 +5,7 @@ from hail.utils import TextTableConfig
 from hail.type import Type
 import hail.representation
 from hail.representation import IntervalTree
+from hail.kinshipMatrix import KinshipMatrix
 import hail.type
 
-__all__ = ['HailContext', 'VariantDataset', 'KeyTable', 'TextTableConfig', 'IntervalTree', 'type', 'representation']
+__all__ = ['HailContext', 'VariantDataset', 'KeyTable', 'TextTableConfig', 'IntervalTree', 'type', 'representation', 'KinshipMatrix']
