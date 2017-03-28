@@ -804,12 +804,22 @@ class VariantDatasetFunctions(private val vds: VariantSampleMatrix[Genotype]) ex
     rootGA: String = "global.lmmreg",
     rootVA: String = "va.lmmreg",
     runAssoc: Boolean = true,
+<<<<<<< HEAD
     delta: Option[Double] = None,
     sparsityThreshold: Double = 1.0): VariantDataset = {
 
     requireSplit("linear mixed regression")
     LinearMixedRegression(vds, kinshipMatrix, y, covariates, useML, rootGA, rootVA,
       runAssoc, delta, sparsityThreshold)
+=======
+    optDelta: Option[Double] = None,
+    sparsityThreshold: Double = 1.0,
+    optNumEigs: Option[Int] = None): VariantDataset = {
+
+    requireSplit("linear mixed regression")
+    LinearMixedRegression(vds, kinshipMatrix, ySA, covSA, useML, rootGA, rootVA,
+      runAssoc, optDelta, sparsityThreshold, optNumEigs)
+>>>>>>> Created branch, added new argument for num-Eigenvalues
   }
 
   def logreg(test: String,
