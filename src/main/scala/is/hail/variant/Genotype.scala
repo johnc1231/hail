@@ -828,23 +828,25 @@ object Genotype {
         var px0 = 0
         var px1 = 0
         var px2 = 0
+
         if (gt == 0) {
           px1 = a.readULEB128()
           px2 = a.readULEB128()
-          px0 = if (isDosage) 32768 - px1 - px2 else 0
+          if (isDosage) px0 = 32768 - (px1 + px2)
         } else if (gt == 1) {
           px0 = a.readULEB128()
           px2 = a.readULEB128()
-          px1 = if (isDosage) 32768 - px0 - px2 else 0
+          if (isDosage) px1 = 32768 - (px0 + px2)
         } else if (gt == 2) {
           px0 = a.readULEB128()
           px1 = a.readULEB128()
-          px2 = if (isDosage) 32768 - px0 - px1 else 0
+          if (isDosage) px2 = 32768 - (px0 + px1)
         } else {
           px0 = a.readULEB128()
           px1 = a.readULEB128()
           px2 = a.readULEB128()
         }
+
         if (isDosage)
           (px1 + 2 * px2) * Genotype.dosageNorm
         else {
