@@ -823,54 +823,44 @@ object Genotype {
 
     a.skipLEB128(count)
 
-    val px: Array[Int] =
+    val dosage: Double =
       if (flagHasPX(flags)) {
-        val pxa = new Array[Int](triangle(nAlleles))
-        if (gt >= 0) {
-          var i = 0
-          while (i < gt) {
-            pxa(i) = a.readULEB128()
-            i += 1
-          }
-          i += 1
-          while (i < pxa.length) {
-            pxa(i) = a.readULEB128()
-            i += 1
-          }
-
-          if (isDosage)
-            pxa(gt) = 32768 - pxa.sum // original values summed to 32768 or 1.0 in probability
-
+        var px0 = 0
+        var px1 = 0
+        var px2 = 0
+        if (gt == 0) {
+          px1 = a.readULEB128()
+          px2 = a.readULEB128()
+          px0 = if (isDosage) 32768 - px1 - px2 else 0
+        } else if (gt == 1) {
+          px0 = a.readULEB128()
+          px2 = a.readULEB128()
+          px1 = if (isDosage) 32768 - px0 - px2 else 0
+        } else if (gt == 2) {
+          px0 = a.readULEB128()
+          px1 = a.readULEB128()
+          px2 = if (isDosage) 32768 - px0 - px1 else 0
         } else {
-          var i = 0
-          while (i < pxa.length) {
-            pxa(i) = a.readULEB128()
-            i += 1
-          }
+          px0 = a.readULEB128()
+          px1 = a.readULEB128()
+          px2 = a.readULEB128()
         }
+        if (isDosage)
+          (px1 + 2 * px2) * Genotype.dosageNorm
+        else {
+          val p0 = math.pow(10, px0 / -10.0)
+          val p1 = math.pow(10, px1 / -10.0)
+          val p2 = math.pow(10, px2 / -10.0)
 
-        pxa
+          (p1 + 2 * p2) / (p0 + p1 + p2)
+        }
       } else
-        null
+        -1d
 
     if (flagHasGQ(flags) && !flagSimpleGQ(flags))
       a.skipLEB128(1)
 
-    val gq: Int =
-      if (flagHasGQ(flags)) {
-        if (flagSimpleGQ(flags))
-          gqFromPL(px)
-        else
-          a.readULEB128()
-      } else
-        -1
-
-    if (!flagHasPX(flags))
-      -1d
-    else if (isDosage)
-      (px(1) + 2 * px(2)) * Genotype.dosageNorm
-    else
-      Genotype.phredToBiallelicDosage(px)
+    dosage
   }
 
   def genDosage(v: Variant): Gen[Genotype] = {
