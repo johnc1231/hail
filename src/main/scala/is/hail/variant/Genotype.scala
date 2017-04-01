@@ -85,7 +85,7 @@ abstract class Genotype extends Serializable {
     else
       Genotype.phredToDosage(unboxedPX)
 
-  def unboxedBiallelicDosageGT: Double =
+  def unboxedBiallelicDosage: Double =
     if (unboxedPX == null)
       -1d
     else if (isDosage)
