@@ -135,9 +135,9 @@ class LinearRegressionSuite extends SparkSuite {
     def assertEmpty(q: Querier, v: Variant) =
       assert(q(annotationMap(v)) == null)
 
-    val gt0 = Genotype.phredToBiallelicDosageGT(Array(0, 20, 100))
-    val gt1 = Genotype.phredToBiallelicDosageGT(Array(20, 0, 100))
-    val gt2 = Genotype.phredToBiallelicDosageGT(Array(20, 100, 0))
+    val gt0 = Genotype.phredToBiallelicDosage(Array(0, 20, 100))
+    val gt1 = Genotype.phredToBiallelicDosage(Array(20, 0, 100))
+    val gt2 = Genotype.phredToBiallelicDosage(Array(20, 100, 0))
 
     assert(D_==(gt0, 0.009900990296049406))
     assert(D_==(gt1, 0.9900990100009803))
@@ -152,7 +152,6 @@ class LinearRegressionSuite extends SparkSuite {
     df = data.frame(y, x, c1, c2)
     fit <- lm(y ~ x + c1 + c2, data=df)
     summary(fit)["coefficients"]
-
     */
 
     assertDouble(qBeta, v1, -0.29166985)

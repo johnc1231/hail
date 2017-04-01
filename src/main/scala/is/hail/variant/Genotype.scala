@@ -91,7 +91,7 @@ abstract class Genotype extends Serializable {
     else if (isDosage)
       (unboxedPX(1) + 2 * unboxedPX(2)) * Genotype.dosageNorm
     else
-      Genotype.phredToBiallelicDosageGT(unboxedPX)
+      Genotype.phredToBiallelicDosage(unboxedPX)
 
   def check(nAlleles: Int) {
     val nGenotypes = triangle(nAlleles)
@@ -584,12 +584,14 @@ object Genotype {
     Array(l0, l1, l2)
   }
 
-  lazy val phredConversionTable: Array[Double] = (0 to 65535).map { i => -10 * math.log10(if (i == 0) .25 else i) }.toArray
+  lazy val linearToPhredConversionTable: Array[Double] = (0 to 65535).map { i => -10 * math.log10(if (i == 0) .25 else i) }.toArray
 
-  lazy val dosageNorm: Double = 1 / 32768.0
+//  lazy val phredToLinearConversionTable: Array[Double] = (0 to 65535).map { i => math.pow(10, i / -10.0) }.toArray
+
+  val dosageNorm: Double = 1 / 32768.0
 
   def linearToPhred(a: Array[Int]): Array[Int] = {
-    val x = a.map(phredConversionTable)
+    val x = a.map(linearToPhredConversionTable)
     x.map { d => (d - x.min + 0.5).toInt }
   }
 
@@ -599,12 +601,12 @@ object Genotype {
     lkhd.map(_ / s)
   }
 
-  def phredToBiallelicDosageGT(a: Array[Int]): Double = {
-    val a0 = math.pow(10, a(0) / -10.0)
-    val a1 = math.pow(10, a(1) / -10.0)
-    val a2 = math.pow(10, a(2) / -10.0)
+  def phredToBiallelicDosage(a: Array[Int]): Double = {
+    val p0 = math.pow(10, a(0) / -10.0)
+    val p1 = math.pow(10, a(1) / -10.0)
+    val p2 = math.pow(10, a(2) / -10.0)
 
-    (a1 + 2 * a2) / (a0 + a1 + a2)
+    (p1 + 2 * p2) / (p0 + p1 + p2)
   }
 
   val smallGTPair = Array(GTPair(0, 0), GTPair(0, 1), GTPair(1, 1),
@@ -746,7 +748,7 @@ object Genotype {
     new GenericGenotype(gt, ad, dp, gq, px, flagFakeRef(flags), isDosage)
   }
 
-  def hardCallRead(nAlleles: Int, isDosage: Boolean, a: ByteIterator): Int = {
+  def readHardCall(nAlleles: Int, isDosage: Boolean, a: ByteIterator): Int = {
     val isBiallelic = nAlleles == 2
 
     val flags = a.readULEB128()
@@ -787,6 +789,88 @@ object Genotype {
     a.skipLEB128(count)
 
     gt
+  }
+
+  def readBiallelicDosage(isDosage: Boolean, a: ByteIterator): Double = {
+    val nAlleles = 2
+    val isBiallelic = true
+
+    val flags = a.readULEB128()
+
+    val gt: Int =
+      if (flagHasGT(isBiallelic, flags)) {
+        if (flagStoresGT(isBiallelic, flags))
+          flagGT(isBiallelic, flags)
+        else
+          a.readULEB128()
+      } else
+        -1
+
+    var count = 0
+
+    if (flagHasAD(flags)) {
+      if (flagSimpleAD(flags)) {
+        count += 1
+        val p = Genotype.gtPair(gt)
+        if (p.j != p.k)
+          count += 1
+      } else
+        count += nAlleles
+    }
+
+    if (flagHasDP(flags) && !(flagHasAD(flags) && flagSimpleDP(flags)))
+      count += 1
+
+    a.skipLEB128(count)
+
+    val px: Array[Int] =
+      if (flagHasPX(flags)) {
+        val pxa = new Array[Int](triangle(nAlleles))
+        if (gt >= 0) {
+          var i = 0
+          while (i < gt) {
+            pxa(i) = a.readULEB128()
+            i += 1
+          }
+          i += 1
+          while (i < pxa.length) {
+            pxa(i) = a.readULEB128()
+            i += 1
+          }
+
+          if (isDosage)
+            pxa(gt) = 32768 - pxa.sum // original values summed to 32768 or 1.0 in probability
+
+        } else {
+          var i = 0
+          while (i < pxa.length) {
+            pxa(i) = a.readULEB128()
+            i += 1
+          }
+        }
+
+        pxa
+      } else
+        null
+
+    if (flagHasGQ(flags) && !flagSimpleGQ(flags))
+      a.skipLEB128(1)
+
+    val gq: Int =
+      if (flagHasGQ(flags)) {
+        if (flagSimpleGQ(flags))
+          gqFromPL(px)
+        else
+          a.readULEB128()
+      } else
+        -1
+
+    if (!flagHasPX(flags))
+      -1d
+    else if (isDosage)
+      (px(1) + 2 * px(2)) * Genotype.dosageNorm
+    else
+      Genotype.phredToBiallelicDosage(px)
   }
 
   def genDosage(v: Variant): Gen[Genotype] = {
