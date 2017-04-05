@@ -5321,6 +5321,7 @@ class VariantDataset(HistoryMixin):
         jvds = self._jvkdf.vep(config, root, csq, block_size)
         return VariantDataset(self.hc, jvds)
 
+    @handle_py4j
     def nirvana(self, config, block_size = 1000, root = 'va.nirvana'):
         jvds = self._jvdf.nirvana(config, block_size, root)
         return VariantDataset(self.hc, jvds)
