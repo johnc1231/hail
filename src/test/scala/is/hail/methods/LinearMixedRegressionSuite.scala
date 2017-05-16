@@ -403,8 +403,8 @@ class LinearMixedRegressionSuite extends SparkSuite {
 
   // this test parallels the lmmreg Python test, and is a regression test related to filtering samples first
   @Test def filterTest() {
-    val covariates = hc.importTable("src/test/resources/regressionLinear.cov",
-      types = Map("Cov1" -> TDouble, "Cov2" -> TDouble)).keyBy("Sample")
+    //val covariates = hc.importTable("src/test/resources/regressionLinear.cov",
+    //  types = Map("Cov1" -> TDouble, "Cov2" -> TDouble)).keyBy("Sample")
     val phenotypes = hc.importTable("src/test/resources/regressionLinear.pheno",
       types = Map("Pheno" -> TDouble), missing = "0").keyBy("Sample")
 
@@ -424,54 +424,44 @@ class LinearMixedRegressionSuite extends SparkSuite {
   }
 
   @Test def testFullAndRestrictedFullRank() {
-    val vds = hc.importPlink(bed="src/test/resources/fastlmmTest.bed", bim="src/test/resources/fastlmmTest.bim", fam="src/test/resources/fastlmmTest.fam")
-      .annotateSamplesTable("src/test/resources/fastlmmCov.txt", "_1", code=Some("sa.cov=table._2"), config=TextTableConfiguration(noHeader=true, impute=true))
-      .annotateSamplesTable("src/test/resources/fastlmmPheno.txt", "_1", code=Some("sa.pheno=table._2"), config=TextTableConfiguration(noHeader=true, impute=true, separator=" "))
 
-    val vdsChr1 = vds.filterVariantsExpr("""v.contig == "1"""")
-    val notChr1RRM = vds.filterVariantsExpr("""v.contig != "1"""").rrm()
+    val notChr1RRM = vdsFastLMM.filterVariantsExpr("""v.contig != "1"""").rrm()
 
     //ML TESTS
     val vdsChr1RestrictedML = vdsChr1.lmmreg(notChr1RRM, "sa.pheno", Array("sa.cov"), useML = true, rootGA = "global.lmmreg",
-      rootVA = "va.lmmreg", runAssoc = false, optDelta = None, sparsityThreshold = 1.0, optNumEigs = Some(250))
+      rootVA = "va.lmmreg", runAssoc = false, delta = None, sparsityThreshold = 1.0, optNumEigs = Some(250))
 
     val vdsChr1FullML = vdsChr1.lmmreg(notChr1RRM, "sa.pheno", Array("sa.cov"), useML = true, rootGA = "global.lmmreg",
-      rootVA = "va.lmmreg", runAssoc = false, optDelta = None, sparsityThreshold = 1.0)
+      rootVA = "va.lmmreg", runAssoc = false, delta = None, sparsityThreshold = 1.0)
 
     assert(D_==(vdsChr1RestrictedML.queryGlobal("global.lmmreg.delta")._2.asInstanceOf[Double],
       vdsChr1FullML.queryGlobal("global.lmmreg.delta")._2.asInstanceOf[Double]))
 
     //REML TESTS
     val vdsChr1RestrictedREML = vdsChr1.lmmreg(notChr1RRM, "sa.pheno", Array("sa.cov"), useML = false, rootGA = "global.lmmreg",
-      rootVA = "va.lmmreg", runAssoc = false, optDelta = None, sparsityThreshold = 1.0, optNumEigs = Some(250))
+      rootVA = "va.lmmreg", runAssoc = false, delta = None, sparsityThreshold = 1.0, optNumEigs = Some(250))
 
     val vdsChr1FullREML = vdsChr1.lmmreg(notChr1RRM, "sa.pheno", Array("sa.cov"), useML = false, rootGA = "global.lmmreg",
-      rootVA = "va.lmmreg", runAssoc = false, optDelta = None, sparsityThreshold = 1.0)
+      rootVA = "va.lmmreg", runAssoc = false,delta = None, sparsityThreshold = 1.0)
 
     assert(D_==(vdsChr1RestrictedREML.queryGlobal("global.lmmreg.delta")._2.asInstanceOf[Double],
       vdsChr1FullREML.queryGlobal("global.lmmreg.delta")._2.asInstanceOf[Double]))
   }
 
-  @Test def testFullAndRestrictedLowRank() {
-    val vds = hc.importPlink(bed="src/test/resources/fastlmmTest.bed", bim="src/test/resources/fastlmmTest.bim", fam="src/test/resources/fastlmmTest.fam")
-      .annotateSamplesTable("src/test/resources/fastlmmCov.txt", "_1", code=Some("sa.cov=table._2"), config=TextTableConfiguration(noHeader=true, impute=true))
-      .annotateSamplesTable("src/test/resources/fastlmmPheno.txt", "_1", code=Some("sa.pheno=table._2"), config=TextTableConfiguration(noHeader=true, impute=true, separator=" "))
-
-    val vdsChr1 = vds.filterVariantsExpr("""v.contig == "1"""")
-    val notChr1VDSDownsampled = vds.filterVariantsExpr("""v.contig != "1"""").sampleVariants(0.24)
+  def testFullAndRestrictedLowRank() {
+    val notChr1VDSDownsampled = vdsFastLMM.filterVariantsExpr("""v.contig != "1"""").sampleVariants(0.24)
 
     println(notChr1VDSDownsampled.countVariants())
 
     val rrm = notChr1VDSDownsampled.rrm()
-    val numEigs = notChr1VDSDownsampled.countVariants().toInt
 
     println(vdsChr1.nSamples + " SAMPLES")
 
     val vdsChr1Full = vdsChr1.lmmreg(rrm, "sa.pheno", Array("sa.cov"), useML = true, rootGA = "global.lmmreg",
-      rootVA = "va.lmmreg", runAssoc = false, optDelta = None, sparsityThreshold = 1.0)
+      rootVA = "va.lmmreg", runAssoc = false, delta = None, sparsityThreshold = 1.0)
 
     val vdsChr1Restricted = vdsChr1.lmmreg(rrm, "sa.pheno", Array("sa.cov"), useML = true, rootGA = "global.lmmreg",
-        rootVA = "va.lmmreg", runAssoc = false, optDelta = None, sparsityThreshold = 1.0, optNumEigs = Some(150))
+        rootVA = "va.lmmreg", runAssoc = false, delta = None, sparsityThreshold = 1.0, optNumEigs = Some(150))
 
     //assert(D_==(vdsChr1Restricted.queryGlobal("global.lmmreg.delta")._2.asInstanceOf[Double],
     //  vdsChr1Full.queryGlobal("global.lmmreg.delta")._2.asInstanceOf[Double]))
@@ -480,8 +470,7 @@ class LinearMixedRegressionSuite extends SparkSuite {
   @Test def testEigSymD() {
     val mat = new DenseMatrix[Double](4, 2, Array[Double](1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0))
 
-    //val mat = new DenseMatrix[Double](4, 4, Array[Double](1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0,
-    //0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0))
+    /
 
     val squared = mat * mat.t
 

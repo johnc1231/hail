@@ -8,7 +8,6 @@ import is.hail.stats._
 import is.hail.stats.eigSymD.DenseeigSymD
 import is.hail.utils._
 import is.hail.variant.VariantDataset
-import is.hail.utils.richUtils.RichIndexedRowMatrix._
 
 import org.apache.commons.math3.analysis.UnivariateFunction
 import org.apache.commons.math3.optim.MaxEval
@@ -217,7 +216,7 @@ class DiagLMMSolver(
   val (delta, optGlobalFit) = optDelta match {
     case Some(d) => (d, None)
     case None =>
-      val (d, gf) = fitDelta(C, y, S, useML)
+      val (d, gf) = fitDelta()
       (d, Some(gf))
   }
 
@@ -234,7 +233,7 @@ class DiagLMMSolver(
     DiagLMM(b, s2, math.log(s2), delta, optGlobalFit, sqrtInvD, TC, Ty, TyTy, useML)
   }
 
-  def fitDelta(): (Double, Option[Double], Option[IndexedSeq[(Double, Double)]]): (Double, GlobalFitLMM) = {
+  def fitDelta(): (Double, GlobalFitLMM) = {
 
     val n = Uty.length
     val c = UtC.cols
@@ -244,11 +243,11 @@ class DiagLMMSolver(
 
       def value(logDelta: Double): Double = {
 
-        val D = S + FastMath.exp(logDelta)
-        val dy = Uty :/ D
+        val invD = (S + FastMath.exp(logDelta)).map(1 / _)
+        val dy = Uty :* invD
         val ydy = Uty dot dy
         val Cdy = UtC.t * dy
-        val CdC = UtC.t * (UtC(::, *) :/ D)
+        val CdC = UtC.t * (UtC(::, *) :* invD)
         val b = CdC \ Cdy
         val r = ydy - (Cdy dot b)
         println(s"FULL logDelta = $logDelta, beta = $b")
@@ -331,11 +330,11 @@ class DiagLMMSolver(
       val shift: Double = n * (1 + math.log(1d / n)) + d * math.log(2 * math.Pi) - logdet(UtC.t * UtC)._2
 
       def value(logDelta: Double): Double = {
-        val D = S + FastMath.exp(logDelta)
-        val dy = Uty :/ D
+        val invD = (S + FastMath.exp(logDelta)).map(1 / _)
+        val dy = Uty :* invD
         val ydy = Uty dot dy
         val Cdy = UtC.t * dy
-        val CdC = UtC.t * (UtC(::, *) :/ D)
+        val CdC = UtC.t * (UtC(::, *) :* invD)
         val b = CdC \ Cdy
         val r = ydy - (Cdy dot b)
 
@@ -513,11 +512,8 @@ class DiagLMMSolver(
     val sigmaH2 =
       math.sqrt(((x2 - x1) * (x1 - x3) * (x3 - x2)) / (-2 * (x3 * (y2 - y1) + x2 * (y1 - y3) + x1 * (y3 - y2))))
 
-    val h2LogLkhd =
-      if (useML)
-        (0.01 to 0.99 by 0.01).map(h2 => LogLkhdML.value(math.log((1 - h2) / h2)))
-      else
-        (0.01 to 0.99 by 0.01).map(h2 => LogLkhdREML.value(math.log((1 - h2) / h2)))
+    val h2LogLkhd = (0.01 to 0.99 by 0.01).map(h2 => logLkhdFunction.value(math.log((1 - h2) / h2)))
+
 
     val h2Lkhd = h2LogLkhd.map(ll => math.exp(ll - maxLogLkhd))
     val h2LkhdSum = h2Lkhd.sum
