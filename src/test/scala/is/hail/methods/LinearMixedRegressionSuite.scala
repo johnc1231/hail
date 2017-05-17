@@ -403,8 +403,8 @@ class LinearMixedRegressionSuite extends SparkSuite {
 
   // this test parallels the lmmreg Python test, and is a regression test related to filtering samples first
   @Test def filterTest() {
-    //val covariates = hc.importTable("src/test/resources/regressionLinear.cov",
-    //  types = Map("Cov1" -> TDouble, "Cov2" -> TDouble)).keyBy("Sample")
+    val covariates = hc.importTable("src/test/resources/regressionLinear.cov",
+      types = Map("Cov1" -> TDouble, "Cov2" -> TDouble)).keyBy("Sample")
     val phenotypes = hc.importTable("src/test/resources/regressionLinear.pheno",
       types = Map("Pheno" -> TDouble), missing = "0").keyBy("Sample")
 
@@ -423,7 +423,7 @@ class LinearMixedRegressionSuite extends SparkSuite {
     vdsAssoc.count()
   }
 
-  @Test def testFullAndRestrictedFullRank() {
+  def testFullAndRestrictedFullRank() {
 
     val notChr1RRM = vdsFastLMM.filterVariantsExpr("""v.contig != "1"""").rrm()
 
@@ -465,23 +465,6 @@ class LinearMixedRegressionSuite extends SparkSuite {
 
     //assert(D_==(vdsChr1Restricted.queryGlobal("global.lmmreg.delta")._2.asInstanceOf[Double],
     //  vdsChr1Full.queryGlobal("global.lmmreg.delta")._2.asInstanceOf[Double]))
-  }
-
-  @Test def testEigSymD() {
-    val mat = new DenseMatrix[Double](4, 2, Array[Double](1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0))
-
-    /
-
-    val squared = mat * mat.t
-
-    val eigStuff = eigSymD(squared)
-
-    println(squared.toString(100, 100))
-    println()
-
-    println(eigStuff.eigenvalues)
-    println()
-    println(eigStuff.eigenvectors.toString(100, 100))
   }
 
 }
