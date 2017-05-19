@@ -208,7 +208,7 @@ class DiagLMMSolver(
   val CtC = C.t * C
   val Cty = C.t * y
   val yty = y.t * y
-  println(s"U has ${U.rows} rows and ${U.cols}")
+  println(s"U has ${U.rows} rows and ${U.cols} columns")
 
   val n = Uty.length
   val d = C.cols
@@ -250,7 +250,7 @@ class DiagLMMSolver(
         val CdC = UtC.t * (UtC(::, *) :* invD)
         val b = CdC \ Cdy
         val r = ydy - (Cdy dot b)
-        println(s"FULL logDelta = $logDelta, beta = $b")
+        //println(s"FULL logDelta = $logDelta, beta = $b")
 
         -0.5 * (-sum(breeze.numerics.log(invD)) + n * math.log(r) + shift)
       }
@@ -306,16 +306,16 @@ class DiagLMMSolver(
 
         val Cj = C - U * U.t * C
         val yj = y - U * U.t * y
-        val trueBeta = (CdC + (Cj.t * Cj) / delta) \ (Cdy + (Cj.t * yj) /delta )
+        val trueBeta = (CdC + (Cj.t * Cj) / delta) \ (Cdy + (Cj.t * yj) / delta)
         val beta = (CdC + (CpC / delta)) \ (Cdy + (Cpy / delta))
-        println(s"logDelta  = $logDelta, beta = $beta")
+        // println(s"logDelta  = $logDelta, beta = $beta")
         val r1 = ydy - (Cdy dot beta)
 
         val Cb = C * beta
         val UtCb = UtC * beta
         val r2J = (ypy - (Cpy dot beta)) / delta
         val r2J2 = (ypy - ((Cb dot Cb) - (UtCb dot UtCb))) / delta
-        val r2Temp = ((y - U * Uty) - (C * beta - (U * UtC) * beta))
+        val r2Temp = (y - U * Uty) - (C * beta - (U * UtC) * beta)
         val r2 = (r2Temp dot r2Temp) / delta
         val s2 = (r1 + r2) / n
         //println(s"Jon = $r2J, Jon2 = $r2J2, paper = $r2")
@@ -385,7 +385,7 @@ class DiagLMMSolver(
         val UtCb = UtC * b
         val k = S.length
 
-        val vectorLength: Double = ((yty - (Uty.t * Uty)) + (Cb.t * Cb - (UtCb).t * UtCb))
+        val vectorLength: Double = (yty - (Uty.t * Uty)) + (Cb.t * Cb - (UtCb).t * UtCb)
         val squaredVectorLength = vectorLength * vectorLength
 
         val sigmaSquared = (1.0 / (n - d)) * (ydy - (Cdy dot b) + (1.0 / delta) * squaredVectorLength)
