@@ -3,139 +3,66 @@ package is.hail.methods
 import java.io.{FileInputStream, IOException}
 import java.util.Properties
 
-import is.hail.annotations.Annotation
-import is.hail.expr.{JSONAnnotationImpex, Parser, TArray, TBoolean, TDouble, TInt, TString, TStruct}
+import is.hail.annotations.{Annotation, Querier}
+import is.hail.expr.{JSONAnnotationImpex, Parser, TArray, TBoolean, TDouble, TInt, TSet, TString, TStruct, Type}
 import is.hail.utils._
 import is.hail.variant.{Variant, VariantDataset}
-import org.apache.spark.sql.catalyst.expressions.GenericRow
 import org.apache.spark.storage.StorageLevel
-import org.json4s.JValue
 import org.json4s.jackson.JsonMethods
 
 import scala.collection.JavaConverters._
 
 
 object Nirvana {
-  val nirvanaWholeSignature = TStruct(
-    "header" -> TStruct(
-      "annotator" -> TString,
-      "creationTime" -> TString,
-      "schemaVersion" -> TInt,
-      "dataVersion" -> TString,
-      "dataSources" -> TArray(TStruct(
-        "name" -> TString,
-        "version" -> TString,
-        "description" -> TString,
-        "releaseDate" -> TString
-      )),
-      "genomeAssembly" -> TString,
-      "samples" -> TArray(TString)
-    ),
-    "positions" -> TArray(TStruct(
-      "chromosome" -> TString,
+
+  // Originally the schema exactly matched Nirvana's JSON output, but in the interest of
+  // speed and avoiding redundancy I've removed several fields that would be determined
+  // from parsing VCF INFO fields. They are commented out and labeled as such below.
+
+
+  //NOTE THIS SCHEMA IS FOR NIRVANA 1.6.2 as of JUNE 19th
+  val nirvanaSignature = TStruct(
+    "chromosome" -> TString,
+    "refAllele" -> TString,
+    "position" -> TInt,
+    "altAlleles" -> TArray(TString),
+    "cytogeneticBand" -> TString,
+    //"quality" -> TDouble,                 //Derived from QUAL, leaving out
+    "filters" -> TArray(TString),
+    //"jointSomaticNormalQuality" -> TInt,  //Derived from INFO, leaving out
+    //"copyNumber" -> TInt,                 //Derived from INFO, leaving out
+    //"strandBias" -> TDouble,              //Derived from INFO, leaving out
+    //"recalibratedQuality" -> TDouble,     //Derived from INFO, leaving out
+    "variants" -> TArray(TStruct(
+      "altAllele" -> TString,
       "refAllele" -> TString,
-      "position" -> TInt,
-      "altAlleles" -> TArray(TString),
-      "cytogeneticBand" -> TString,
-      "quality" -> TInt,
-      "filters" -> TArray(TString),
-      "jointSomaticNormalQuality" -> TInt,
-      "copyNumber" -> TInt,
-      "strandBias" -> TDouble,
-      "recalibratedQuality" -> TDouble,
-      "samples" -> TArray(TStruct(
-        "variantFreq" -> TDouble,
-        "totalDepth" -> TInt,
-        "alleleDepths" -> TArray(TInt),
-        "genotype" -> TString,
-        "genotypeQuality" -> TInt,
-        "failedFilter" -> TBoolean,
-        "isEmpty" -> TBoolean,
-        "copyNumber" -> TInt,
-        "lossOfHeterozygosity" -> TBoolean
-      )),
-      "variants" -> TArray(TStruct(
-        "ancestralAllele" -> TString,
-        "altAllele" -> TString,
-        "refAllele" -> TString,
-        "chromosome" -> TString,
-        "begin" -> TInt,
-        "end" -> TInt,
-        "phylopScore" -> TDouble,
-        "dbsnp" -> TArray(TString),
-        "globalMinorAllele" -> TString,
-        "gmaf" -> TDouble,
-        "isReferenceMinorAllele" -> TBoolean,
-        "variantType" -> TString,
-        "vid" -> TString,
-        "oneKgAll" -> TDouble,
-        "oneKgAllAc" -> TInt,
-        "oneKgAllAn" -> TInt,
-        "oneKgAfr" -> TDouble,
-        "oneKgAfrAc" -> TInt,
-        "oneKgAfrAn" -> TInt,
-        "oneKgAmr" -> TDouble,
-        "oneKgAmrAc" -> TInt,
-        "oneKgAmrAn" -> TInt,
-        "oneKgEas" -> TDouble,
-        "oneKgEasAc" -> TInt,
-        "oneKgEasAn" -> TInt,
-        "oneKgEur" -> TDouble,
-        "oneKgEurAc" -> TInt,
-        "oneKgEurAn" -> TInt,
-        "oneKgSas" -> TDouble,
-        "oneKgSasAc" -> TInt,
-        "oneKgSasAn" -> TInt,
-        "evsCoverage" -> TInt,
-        "evsSamples" -> TInt,
-        "evsAll" -> TDouble,
-        "evsAfr" -> TDouble,
-        "evsEur" -> TDouble,
-        "exacCoverage" -> TInt,
-        "exacAll" -> TDouble,
-        "exacAllAc" -> TInt,
-        "exacAllAn" -> TInt,
-        "exacAfr" -> TDouble,
-        "exacAfrAc" -> TInt,
-        "exacAfrAn" -> TInt,
-        "exacAmr" -> TDouble,
-        "exacAmrAc" -> TInt,
-        "exacAmrAn" -> TInt,
-        "exacEas" -> TDouble,
-        "exacEasAc" -> TInt,
-        "exacEasAn" -> TInt,
-        "exacFin" -> TDouble,
-        "exacFinAc" -> TInt,
-        "exacFinAn" -> TInt,
-        "exacNfe" -> TDouble,
-        "exacNfeAc" -> TInt,
-        "exacNfeAn" -> TInt,
-        "exacOth" -> TDouble,
-        "exacOthAc" -> TInt,
-        "exacOthAn" -> TInt,
-        "exacSas" -> TDouble,
-        "exacSasAc" -> TInt,
-        "exacSasAn" -> TInt
-      )),
+      "chromosome" -> TString,
+      "begin" -> TInt,
+      "end" -> TInt,
+      "phylopScore" -> TDouble,
+      "isReferenceMinor" -> TBoolean,
+      "variantType" -> TString,
+      "vid" -> TString,
+      "isRecomposed" -> TBoolean,
       "regulatoryRegions" -> TArray(TStruct(
         "id" -> TString,
-        "consequence" -> TArray(TString)
+        "consequence" -> TSet(TString),
+        "type" -> TString
       )),
-      "clinVar" -> TArray(TStruct(
+      "clinvar" -> TArray(TStruct(
         "id" -> TString,
         "reviewStatus" -> TString,
         "isAlleleSpecific" -> TBoolean,
-        "alleleOrigin" -> TString,
+        "alleleOrigins" -> TArray(TString),
         "refAllele" -> TString,
         "altAllele" -> TString,
-        "phenotype" -> TString,
+        "phenotypes" -> TArray(TString),
+        "medGenIds" -> TArray(TString),
+        "omimIds" -> TArray(TString),
+        "orphanetIds" -> TArray(TString),
         "geneReviewsId" -> TString,
-        "medGenId" -> TString,
-        "omimId" -> TString,
-        "orphanetId" -> TString,
         "significance" -> TString,
-        "snoMetCtId" -> TString,
-        "lastEvaluatedDate" -> TString,
+        "lastUpdatedDate" -> TString,
         "pubMedIds" -> TArray(TString)
       )),
       "cosmic" -> TArray(TStruct(
@@ -144,17 +71,78 @@ object Nirvana {
         "refAllele" -> TString,
         "altAllele" -> TString,
         "gene" -> TString,
+        "sampleCount" -> TInt,
         "studies" -> TArray(TStruct(
           "id" -> TInt,
           "histology" -> TString,
           "primarySite" -> TString
         ))
       )),
+      "dbsnp" -> TStruct("ids" -> TArray(TString)),
+      "evs" -> TStruct(
+        "coverage" -> TInt,
+        "sampleCount" -> TInt,
+        "allAf" -> TDouble,
+        "afrAf" -> TDouble,
+        "eurAf" -> TDouble
+      ),
+      "exac" -> TStruct(
+        "coverage" -> TInt,
+        "allAf" -> TDouble,
+        "allAc" -> TInt,
+        "allAn" -> TInt,
+        "afrAf" -> TDouble,
+        "afrAc" -> TInt,
+        "afrAn" -> TInt,
+        "amrAf" -> TDouble,
+        "amrAc" -> TInt,
+        "amrAn" -> TInt,
+        "easAf" -> TDouble,
+        "easAc" -> TInt,
+        "easAn" -> TInt,
+        "finAf" -> TDouble,
+        "finAc" -> TInt,
+        "finAn" -> TInt,
+        "nfeAf" -> TDouble,
+        "nfeAc" -> TInt,
+        "nfeAn" -> TInt,
+        "othAf" -> TDouble,
+        "othAc" -> TInt,
+        "othAn" -> TInt,
+        "sasAf" -> TDouble,
+        "sasAc" -> TInt,
+        "sasAn" -> TInt
+      ),
+      "globalAllele" -> TStruct(
+        "globalMinorAllele" -> TString,
+        "globalMinorAlleleFrequency" -> TDouble
+      ),
+      "oneKg" -> TStruct(
+        "ancestralAllele" -> TString,
+        "allAf" -> TDouble,
+        "allAc" -> TInt,
+        "allAn" -> TInt,
+        "afrAf" -> TDouble,
+        "afrAc" -> TInt,
+        "afrAn" -> TInt,
+        "amrAf" -> TDouble,
+        "amrAc" -> TInt,
+        "amrAn" -> TInt,
+        "easAf" -> TDouble,
+        "easAc" -> TInt,
+        "easAn" -> TInt,
+        "eurAf" -> TDouble,
+        "eurAc" -> TInt,
+        "eurAn" -> TInt,
+        "sasAf" -> TDouble,
+        "sasAc" -> TInt,
+        "sasAn" -> TInt
+      ),
       "transcripts" -> TStruct(
-        "ensembl" -> TArray(TStruct(
+        "refSeq" -> TArray(TStruct(
           "transcript" -> TString,
-          "aminoAcids" -> TString,
           "bioType" -> TString,
+          "aminoAcids" -> TString,
           "cDnaPos" -> TString,
           "codons" -> TString,
           "cdsPos" -> TString,
@@ -172,106 +160,11 @@ object Nirvana {
           "proteinPos" -> TString,
           "siftScore" -> TDouble,
           "siftPrediction" -> TString
-        ))
-      )
-    ))
-  )
-
-  val nirvanaSignature = TStruct(
-    "chromosome" -> TString,
-    "refAllele" -> TString,
-    "position" -> TInt,
-    "altAlleles" -> TArray(TString),
-    "cytogeneticBand" -> TString,
-    "quality" -> TDouble,
-    "filters" -> TArray(TString),
-    "jointSomaticNormalQuality" -> TInt,
-    "copyNumber" -> TInt,
-    "strandBias" -> TDouble,
-    "recalibratedQuality" -> TDouble,
-    "samples" -> TArray(TStruct(
-      "variantFreq" -> TDouble,
-      "totalDepth" -> TInt,
-      "alleleDepths" -> TArray(TInt),
-      "genotype" -> TString,
-      "genotypeQuality" -> TInt,
-      "failedFilter" -> TBoolean,
-      "isEmpty" -> TBoolean,
-      "copyNumber" -> TInt,
-      "lossOfHeterozygosity" -> TBoolean
-    )),
-    "variants" -> TArray(TStruct(
-      "ancestralAllele" -> TString,
-      "altAllele" -> TString,
-      "refAllele" -> TString,
-      "chromosome" -> TString,
-      "begin" -> TInt,
-      "end" -> TInt,
-      "phylopScore" -> TDouble,
-      "dbsnp" -> TArray(TString),
-      "globalMinorAllele" -> TString,
-      "gmaf" -> TDouble,
-      "isReferenceMinorAllele" -> TBoolean,
-      "variantType" -> TString,
-      "vid" -> TString,
-      "oneKgAll" -> TDouble,
-      "oneKgAllAc" -> TInt,
-      "oneKgAllAn" -> TInt,
-      "oneKgAfr" -> TDouble,
-      "oneKgAfrAc" -> TInt,
-      "oneKgAfrAn" -> TInt,
-      "oneKgAmr" -> TDouble,
-      "oneKgAmrAc" -> TInt,
-      "oneKgAmrAn" -> TInt,
-      "oneKgEas" -> TDouble,
-      "oneKgEasAc" -> TInt,
-      "oneKgEasAn" -> TInt,
-      "oneKgEur" -> TDouble,
-      "oneKgEurAc" -> TInt,
-      "oneKgEurAn" -> TInt,
-      "oneKgSas" -> TDouble,
-      "oneKgSasAc" -> TInt,
-      "oneKgSasAn" -> TInt,
-      "evsCoverage" -> TInt,
-      "evsSamples" -> TInt,
-      "evsAll" -> TDouble,
-      "evsAfr" -> TDouble,
-      "evsEur" -> TDouble,
-      "exacCoverage" -> TInt,
-      "exacAll" -> TDouble,
-      "exacAllAc" -> TInt,
-      "exacAllAn" -> TInt,
-      "exacAfr" -> TDouble,
-      "exacAfrAc" -> TInt,
-      "exacAfrAn" -> TInt,
-      "exacAmr" -> TDouble,
-      "exacAmrAc" -> TInt,
-      "exacAmrAn" -> TInt,
-      "exacEas" -> TDouble,
-      "exacEasAc" -> TInt,
-      "exacEasAn" -> TInt,
-      "exacFin" -> TDouble,
-      "exacFinAc" -> TInt,
-      "exacFinAn" -> TInt,
-      "exacNfe" -> TDouble,
-      "exacNfeAc" -> TInt,
-      "exacNfeAn" -> TInt,
-      "exacOth" -> TDouble,
-      "exacOthAc" -> TInt,
-      "exacOthAn" -> TInt,
-      "exacSas" -> TDouble,
-      "exacSasAc" -> TInt,
-      "exacSasAn" -> TInt,
-      "regulatoryRegions" -> TArray(TStruct(
-        "id" -> TString,
-        "consequence" -> TArray(TString),
-        "type" -> TString
-      )),
-      "transcripts" -> TStruct(
+        )),
         "ensembl" -> TArray(TStruct(
           "transcript" -> TString,
-          "aminoAcids" -> TString,
           "bioType" -> TString,
+          "aminoAcids" -> TString,
           "cDnaPos" -> TString,
           "codons" -> TString,
           "cdsPos" -> TString,
@@ -291,33 +184,19 @@ object Nirvana {
           "siftPrediction" -> TString
         ))
       ),
-      "clinVar" -> TArray(TStruct(
-        "id" -> TString,
-        "reviewStatus" -> TString,
-        "isAlleleSpecific" -> TBoolean,
-        "alleleOrigin" -> TString,
-        "refAllele" -> TString,
-        "altAllele" -> TString,
-        "phenotype" -> TString,
-        "geneReviewsId" -> TString,
-        "medGenId" -> TString,
-        "omimId" -> TString,
-        "orphanetId" -> TString,
-        "significance" -> TString,
-        "snoMetCtId" -> TString,
-        "lastEvaluatedDate" -> TString,
-        "pubMedIds" -> TArray(TString)
-      )),
-      "cosmic" -> TArray(TStruct(
-        "id" -> TString,
-        "isAlleleSpecific" -> TBoolean,
-        "refAllele" -> TString,
-        "altAllele" -> TString,
-        "gene" -> TString,
-        "studies" -> TArray(TStruct(
-          "id" -> TInt,
-          "histology" -> TString,
-          "primarySite" -> TString
+      "genes" -> TArray(TStruct(
+        "name" -> TString,
+        "omim" -> TArray(TStruct(
+          "mimNumber" -> TInt,
+          "hgnc" -> TString,
+          "description" -> TString,
+          "phenotypes" -> TArray(TStruct(
+            "mimNumber" -> TInt,
+            "phenotype" -> TString,
+            "mapping" -> TString,
+            "inheritance" -> TArray(TString),
+            "comments" -> TString
+          ))
         ))
       ))
     ))
@@ -328,7 +207,7 @@ object Nirvana {
     w("#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT")
   }
 
-  def printElement(w: (String) => Unit, vAndA: (Variant, Annotation)) {
+  def printElement(vaSignature: Type)(w: (String) => Unit, vAndA: (Variant, Annotation)) {
     val (v, a) = vAndA
     val sb = new StringBuilder()
     sb.append(v.contig)
@@ -339,7 +218,8 @@ object Nirvana {
     sb += '\t'
     sb.append(v.altAlleles.iterator.map(_.alt).mkString(","))
     sb += '\t'
-    //sb.append(a.asInstanceOf[GenericRow].get(1))
+    //val qualValue= vaSignature.query("qual")(a)
+    //sb.append(Option(qualValue).getOrElse(".").toString)
     //sb.append("\t.\tGT")
     sb.append("\t.\t.\tGT")
     w(sb.result())
@@ -401,13 +281,14 @@ object Nirvana {
 
     println(cmd.mkString(" "))
 
-    val contigQuery = nirvanaSignature.query("chromosome")
+    val contigQuery: Querier = nirvanaSignature.query("chromosome")
     val startQuery = nirvanaSignature.query("position")
     val refQuery = nirvanaSignature.query("refAllele")
     val altsQuery = nirvanaSignature.query("altAlleles")
-
-
+    val oldSignature = vds.vaSignature
     val localBlockSize = blockSize
+
+    info("Running Nirvana")
 
     val annotations = vds.rdd.mapValues { case (va, gs) => va }
       .mapPartitions({ it =>
@@ -422,13 +303,21 @@ object Nirvana {
           .flatMap { block =>
             val (jt, proc) = block.iterator.pipe(pb,
               printContext,
-              printElement,
+              printElement(oldSignature),
               _ => ())
-            //Drop header line for now, reconsider later.
-            val kt = jt.drop(1).filter(!_.startsWith("]")).map { s =>
+            //The drop is to ignore the header line, the filter is because every other output line is a comma.
+            val kt = jt.filter(_.startsWith("{\"chromosome")).map { s =>
                 val a = JSONAnnotationImpex.importAnnotation(JsonMethods.parse(s), nirvanaSignature)
-                val v = variantFromInput(contigQuery(a).asInstanceOf[String], startQuery(a).asInstanceOf[Int],
-                  refQuery(a).asInstanceOf[String], altsQuery(a).asInstanceOf[Seq[String]].toArray)
+                if(startQuery(a).asInstanceOf[Int] == 0) {
+                  println()
+                  println(s)
+                  println(a)
+                }
+                val v = variantFromInput(contigQuery(a).asInstanceOf[String],
+                  startQuery(a).asInstanceOf[Int],
+                  refQuery(a).asInstanceOf[String],
+                  altsQuery(a).asInstanceOf[Seq[String]].toArray
+                )
                 (v, a)
               }
 
