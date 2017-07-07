@@ -584,7 +584,7 @@ class VariantDatasetFunctions(private val vds: VariantSampleMatrix[Genotype]) ex
     LinearRegression3(vds, ys, covariates, root, useDosages, variantBlockSize)
   }
 
-  def lmmreg(kinshipMatrix: SimilarityMatrix,
+  def lmmreg(kinshipMatrix: LMMMatrix,
     y: String,
     covariates: Array[String] = Array.empty[String],
     useML: Boolean = false,
@@ -595,12 +595,11 @@ class VariantDatasetFunctions(private val vds: VariantSampleMatrix[Genotype]) ex
     sparsityThreshold: Double = 1.0,
     useDosages: Boolean = false,
     nEigs: Option[Int] = None,
-    optDroppedVarianceFraction: Option[Double] = None,
-    optFilterVariantsExpr: Option[String] = None): VariantDataset = {
+    optDroppedVarianceFraction: Option[Double] = None): VariantDataset = {
 
     requireSplit("linear mixed regression")
     LinearMixedRegression(vds, kinshipMatrix, y, covariates, useML, rootGA, rootVA,
-      runAssoc, delta, sparsityThreshold, useDosages, nEigs, optDroppedVarianceFraction, optFilterVariantsExpr)
+      runAssoc, delta, sparsityThreshold, useDosages, nEigs, optDroppedVarianceFraction)
   }
 
   def logreg(test: String,
