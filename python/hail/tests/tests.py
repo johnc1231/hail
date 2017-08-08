@@ -268,6 +268,8 @@ class ContextTests(unittest.TestCase):
                 (dataset.repartition(16, shuffle=False)
                  .same(dataset)))
 
+            self.assertTrue(dataset.naive_coalesce(2).same(dataset))
+
             print(dataset.storage_level())
             dataset.unpersist()
             dataset2.unpersist()
@@ -276,6 +278,7 @@ class ContextTests(unittest.TestCase):
         sample.cache()
 
         sample.summarize().report()
+        sample.drop_samples().summarize().report()
 
         sample_split = sample.split_multi()
 
@@ -413,7 +416,7 @@ class ContextTests(unittest.TestCase):
         variants_py = (sample
                        .annotate_variants_expr('va.hets = gs.filter(g => g.isHet).collect()')
                        .variants_table()
-                       .collect())
+                       .take(5))
 
         VariantDataset.from_table(sample.variants_table())
 
@@ -526,7 +529,7 @@ class ContextTests(unittest.TestCase):
         self.assertEqual(first3[2].Sample, 'HG00099')
         self.assertTrue(all(x.Status == 'CASE' for x in first3))
 
-        self.assertEqual(range(100), [x.index for x in KeyTable.range(100).collect()])
+        self.assertEqual(range(10), [x.index for x in KeyTable.range(10).collect()])
         self.assertTrue(KeyTable.range(200).indexed('foo').forall('index == foo'))
 
     def test_representation(self):

@@ -12,9 +12,9 @@ from hail.representation import Interval, Pedigree, Variant
 from hail.utils import Summary, wrap_to_list, hadoop_read
 from hail.kinshipMatrix import KinshipMatrix
 from hail.ldMatrix import LDMatrix
+from hail.eigendecomposition import Eigendecomposition
 
 warnings.filterwarnings(module=__name__, action='once')
-
 
 @decorator
 def requireTGenotype(func, vds, *args, **kwargs):
@@ -36,6 +36,7 @@ def convertVDS(func, vds, *args, **kwargs):
 
     return func(vds, *args, **kwargs)
 
+vds_type = lazy()
 
 class VariantDataset(object):
     """Hail's primary representation of genomic data, a matrix keyed by sample and variant.
@@ -74,6 +75,15 @@ class VariantDataset(object):
     @typecheck(table=KeyTable)
     def from_table(table):
         """Construct a sites-only variant dataset from a key table.
+
+        **Examples**
+
+        Import a text table and construct a sites-only VDS:
+
+        >>> table = hc.import_table('data/variant-lof.tsv', types={'v': TVariant()}).key_by('v')
+        >>> sites_vds = VariantDataset.from_table(table)
+
+        **Notes**
 
         The key table must be keyed by one column of type :py:class:`.TVariant`.
 
@@ -253,6 +263,7 @@ class VariantDataset(object):
 
         :param expr: Annotation expression.
         :type expr: str or list of str
+        
         :param bool propagate_gq: Propagate GQ instead of computing from (split) PL.
 
         :return: Annotated variant dataset.
@@ -841,7 +852,7 @@ class VariantDataset(object):
         return VariantDataset(self.hc, jvds)
 
     @handle_py4j
-    @typecheck_method(other=anytype,
+    @typecheck_method(other=vds_type,
                       expr=nullable(strlike),
                       root=nullable(strlike))
     def annotate_variants_vds(self, other, expr=None, root=None):
@@ -1009,7 +1020,7 @@ class VariantDataset(object):
                  FROM files AS f INNER JOIN annotations AS a ON f.file_id = a.file_id
                  WHERE f.file_id IN ({})
                  GROUP BY file_path""".format(sub)
-            
+
         # collect counts in file_id: count dictionary
         cnts = {x[0]: x[1] for x in curs.execute(qry, file_ids).fetchall()}
 
@@ -1159,7 +1170,7 @@ class VariantDataset(object):
 
     @handle_py4j
     @requireTGenotype
-    @typecheck_method(right=anytype)
+    @typecheck_method(right=vds_type)
     def concordance(self, right):
         """Calculate call concordance with another variant dataset.
 
@@ -2131,8 +2142,17 @@ class VariantDataset(object):
         
         >>> vds_filtered = vds.filter_intervals(Interval.parse('15:100000-200000'))
 
-        :param intervals: interval or list of intervals
+        .. note::
+
+            A :py:class:`.KeyTable` keyed by interval can be used to filter a dataset efficiently as well.
+            See the documentation for :py:meth:`.filter_variants_table` for an example. This is useful for
+            using interval files to filter a dataset.
+
+        :param intervals: Interval(s) to keep or remove.
         :type intervals: :class:`.Interval` or list of :class:`.Interval`
+
+        :param bool keep: Keep variants overlapping an interval if ``True``, remove variants overlapping
+                          an interval if ``False``.
 
         :return: Filtered variant dataset.
         :rtype: :py:class:`.VariantDataset`
@@ -2495,7 +2515,7 @@ class VariantDataset(object):
         return VariantDataset(self.hc, jvds)
 
     @handle_py4j
-    @typecheck_method(right=anytype)
+    @typecheck_method(right=vds_type)
     def join(self, right):
         """Join two variant datasets.
 
@@ -2977,7 +2997,7 @@ class VariantDataset(object):
                                            jarray(Env.jvm().java.lang.String, covariates), root, use_dosages, min_ac,
                                            min_af)
         return VariantDataset(self.hc, jvds)
-    
+
     @handle_py4j
     @requireTGenotype
     @typecheck_method(ys=listof(strlike),
@@ -3002,8 +3022,11 @@ class VariantDataset(object):
         **Annotations**
 
         With the default root, the following four variant annotations are added.
-        The indexing of these annotations corresponds to that of ``y``.
+        The indexing of the array annotations corresponds to that of ``y``.
 
+        - **va.linreg.nCompleteSamples** (*Int*) -- number of samples used
+        - **va.linreg.AC** (*Double*) -- sum of the genotype values ``x``
+        - **va.linreg.ytx** (*Array[Double]*) -- array of dot products of each phenotype vector ``y`` with the genotype vector ``x``
         - **va.linreg.beta** (*Array[Double]*) -- array of fit genotype coefficients, :math:`\hat\beta_1`
         - **va.linreg.se** (*Array[Double]*) -- array of estimated standard errors, :math:`\widehat{\mathrm{se}}`
         - **va.linreg.tstat** (*Array[Double]*) -- array of :math:`t`-statistics, equal to :math:`\hat\beta_1 / \widehat{\mathrm{se}}`
@@ -3032,7 +3055,7 @@ class VariantDataset(object):
 
     @handle_py4j
     @requireTGenotype
-    @typecheck_method(kinshipMatrix=oneof(KinshipMatrix, LDMatrix),
+    @typecheck_method(kinshipMatrix=KinshipMatrix,
                       y=strlike,
                       covariates=listof(strlike),
                       global_root=strlike,
@@ -3042,15 +3065,18 @@ class VariantDataset(object):
                       delta=nullable(numeric),
                       sparsity_threshold=numeric,
                       use_dosages=bool,
-                      n_eigs=nullable(integral),
-                      dropped_variance_fraction=nullable(float),
-                      filter_variants_expr=(nullable(strlike)))
+                      n_eigs=nullable(integral))
     def lmmreg(self, kinshipMatrix, y, covariates=[], global_root="global.lmmreg", va_root="va.lmmreg",
-               run_assoc=True, use_ml=False, delta=None, sparsity_threshold=1.0, use_dosages=False,
-               n_eigs=None, dropped_variance_fraction=None, filter_variants_expr=None):
+               run_assoc=True, use_ml=False, delta=None, sparsity_threshold=1.0, use_dosages=False, n_eigs=None):
         """Use a kinship-based linear mixed model to estimate the genetic component of phenotypic variance (narrow-sense heritability) and optionally test each variant for association.
 
         .. include:: requireTGenotype.rst
+        
+        .. caution::
+        
+          For :py:meth:`~hail.VariantDataset.lmmreg`, the kinship matrix must be small enough to fit in local memory
+          on the driver, with an absolute bound of 32k samples. Users should switch to the updated interface
+          :py:meth:`~hail.VariantDataset.lmmreg_eigen` for improved efficiency and scaling.
 
         **Examples**
 
@@ -3143,11 +3169,11 @@ class VariantDataset(object):
 
         **Performance**
 
-        Hail's initial version of :py:meth:`.lmmreg` scales beyond 15k samples and to an essentially unbounded number of variants, making it particularly well-suited to modern sequencing studies and complementary to tools designed for SNP arrays.
+        Hail's initial version of :py:meth:`.lmmreg` is particularly well-suited to modern sequencing studies and complementary to tools designed for SNP arrays.
 
-        The `eigendecomposition <https://en.wikipedia.org/wiki/Eigendecomposition_of_a_matrix>`__ step (Step 3) is currently run on a single core of master using the `LAPACK routine DSYEVD <http://www.netlib.org/lapack/explore-html/d2/d8a/group__double_s_yeigen_ga694ddc6e5527b6223748e3462013d867.html>`__. If you see unexpectedly poor performance, check that LAPACK natives are being properly loaded (see "BLAS and LAPACK" in Getting Started).
+        The `eigendecomposition <https://en.wikipedia.org/wiki/Eigendecomposition_of_a_matrix>`__ step (Step 2) is currently run on a single core of the driver using the `LAPACK routine DSYEVD <http://www.netlib.org/lapack/explore-html/d2/d8a/group__double_s_yeigen_ga694ddc6e5527b6223748e3462013d867.html>`__. For best performance, check that LAPACK natives are being properly loaded (see "BLAS and LAPACK" in Getting Started).
 
-        Given the eigendecomposition, fitting the global model (Step 3) takes on the order of a few seconds on master. Association testing (Step 4) is fully distributed by variant with per-variant time complexity that is dominated by multiplication of the genotype vector :math:`v` by the matrix of eigenvectors :math:`U^T` as described below, which we accelerate with a sparse representation of :math:`v`.  The matrix :math:`U^T` has size about :math:`8n^2` bytes and is currently broadcast to each Spark executor.
+        Given the eigendecomposition, fitting the global model (Step 3) proceeds on the driver. Association testing (Step 4) is fully distributed by variant with per-variant time complexity that is dominated by multiplication of the genotype vector :math:`v` by the matrix of eigenvectors :math:`U^T` as described below. The matrix :math:`U^T` has size about :math:`8n^2` bytes and is currently broadcast to each Spark executor. So for large :math:`n`, we recommend using a high-memory configuration such as ``highmem`` workers.
 
         **Linear mixed model**
 
@@ -3241,26 +3267,18 @@ class VariantDataset(object):
 
         **Kinship Matrix**
 
-        FastLMM uses the Realized Relationship Matrix (RRM) for kinship. This can be computed with :py:meth:`~hail.VariantDataset.rrm`. However, any instance of :py:class:`KinshipMatrix` may be used, so long as ``sample_list`` contains the complete samples of the caller variant dataset in the same order. Currently, due to the fact that the eigendecomposition is done locally, this matrix (or the LD matrix below) can only be a maximum size of 32,000 X 32,000.
-
-        **LD Matrix**
-
-        The rank of the kinship matrix (RRM) resulting from a genetic matrix on :math:`n` samples and :math:`m` variants is at most the minimum of :math:`n` and :math:`m`. So to improve efficiency when :math:`m` is less than :math:`n`, this method alternatively accepts an LD matrix, the eigenvectors of which are then transformed to the first :math:`m` eigenvectors of the RRM using the relationship between left and right singular vectors as defined by the singular value decomposition of the normalized genetic matrix. Passing in the RRM or LD matrix will result in mathematically identical statistics. The n_eigs and dropped_variance_fraction parameters may be used in addition to further improve performance using approximate rather than exact inference (see next section).
-
-        Also note that all variants present in the LD matrix must be present in the variant dataset in order to run this method. The `filter_variants_expr` parameter can be used to limit the per variant association portion of the method to particular variants.
-
-        **Low-rank approximation of kinship for improved performance**
-
-        :py:meth:`.lmmreg` can implicitly use a low-rank approximation of the kinship matrix to more rapidly fit delta and the statistics for each variant. The computational complexity per variant is proportional to the number of eigenvectors used. This number can be specified in two ways. Specify the parameter ``n_eigs`` to use only the top ``n_eigs`` eigenvectors. Alternatively, specify ``dropped_variance_fraction`` to use as many eigenvectors as necessary to capture all but at most this fraction of the sample variance (also known as the trace, or the sum of the eigenvalues). For example, ``dropped_variance_fraction=0.01`` will use the minimal number of eigenvectors to account for 99% of the sample variance. Specifying both parameters will apply the more stringent (fewest eigenvectors) of the two.
-
-        Note the number of eigenvectors used cannot be greater than the rank of the Kinship matrix, or equivalently, of the LD matrix.
+        The kinship matrix parameter may be constructed with :py:meth:`~hail.VariantDataset.rrm` or :py:meth:`~hail.VariantDataset.grm`; 
+        FastLMM uses the Realized Relationship Matrix (RRM). The ``sample_list`` must contain the complete samples of the caller variant dataset in the same order.
+        
+        Set the ``n_eigs`` parameter lower than the rank of the kinship matrix to implicitly substitute a
+        low-rank approximation. The computational complexity per variant is proportional to the number of eigenvectors retained.
 
         **Further background**
 
         For the history and mathematics of linear mixed models in genetics, including `FastLMM <https://www.microsoft.com/en-us/research/project/fastlmm/>`__, see `Christoph Lippert's PhD thesis <https://publikationen.uni-tuebingen.de/xmlui/bitstream/handle/10900/50003/pdf/thesis_komplett.pdf>`__. For an investigation of various approaches to defining kinship, see `Comparison of Methods to Account for Relatedness in Genome-Wide Association Studies with Family-Based Data <http://journals.plos.org/plosgenetics/article?id=10.1371/journal.pgen.1004445>`__.
 
-        :param kinshipMatrix: Kinship matrix or LD matrix to be used.
-        :type kinshipMatrix: :class:`KinshipMatrix` or :class:`LDMatrix`
+        :param kinshipMatrix: Kinship matrix
+        :type kinshipMatrix: :class:`KinshipMatrix`
 
         :param str y: Response sample annotation.
 
@@ -3282,28 +3300,88 @@ class VariantDataset(object):
 
         :param bool use_dosages: If true, use dosages rather than hard call genotypes.
 
-        :param int n_eigs: Number of eigenvectors of the kinship matrix used to fit the model.
-
-        :param float dropped_variance_fraction: Upper bound on fraction of sample variance lost by dropping eigenvectors with small eigenvalues.
-
-        :param int n_eigs: Number of eigenvectors to use to fit the LMM
-
-        :param float dropped_variance_fraction: Upper bound on fraction of total variance lost by dropping eigenvectors with small eigenvalues.
-
-        :param str filter_variants_expr: Boolean filter expression on variants. If given, only variants that pass this predicate will have statistics computed; the rest will be removed from the returned VDS.
+        :param int n_eigs: Upper bound on the number of eigenvectors of the kinship matrix used to fit the model.
 
         :return: Variant dataset with linear mixed regression annotations.
         :rtype: :py:class:`.VariantDataset`
         """
 
-        if isinstance(kinshipMatrix, KinshipMatrix):
-            jm = kinshipMatrix._jkm
-        else:
-            jm = kinshipMatrix._jldm
+        jvds = self._jvdf.lmmreg(kinshipMatrix._jkm, y, jarray(Env.jvm().java.lang.String, covariates), use_ml,
+                                 global_root, va_root, run_assoc, joption(delta), sparsity_threshold,
+                                 use_dosages, joption(n_eigs))
+        return VariantDataset(self.hc, jvds)
+    
+    @handle_py4j
+    @requireTGenotype
+    @typecheck_method(eigen=Eigendecomposition,
+                      y=strlike,
+                      covariates=listof(strlike),
+                      global_root=strlike,
+                      va_root=strlike,
+                      run_assoc=bool,
+                      use_ml=bool,
+                      delta=nullable(numeric),
+                      sparsity_threshold=numeric,
+                      use_dosages=bool)
+    def lmmreg_eigen(self, eigen, y, covariates=[], global_root="global.lmmreg", va_root="va.lmmreg", 
+                     run_assoc=True, use_ml=False, delta=None, sparsity_threshold=1.0, use_dosages=False):
+        """Use a kinship-based linear mixed model to estimate the genetic component of phenotypic variance (narrow-sense heritability) and optionally test each variant for association. This method is more efficient and scalable than :py:meth:`~hail.VariantDataset.lmmreg`.
 
-        jvds = self._jvdf.lmmreg(jm, y, jarray(Env.jvm().java.lang.String, covariates),
-                                 use_ml, global_root, va_root, run_assoc, joption(delta), sparsity_threshold,
-                                 use_dosages, joption(n_eigs), joption(dropped_variance_fraction), joption(filter_variants_expr))
+        .. include:: requireTGenotype.rst
+
+        **Examples**
+
+        Suppose the variant dataset saved at *data/example_lmmreg.vds* has Boolean variant annotations ``va.useInKinship`` and ``va.useInAssociation``, and numeric or Boolean sample annotations ``sa.pheno``, ``sa.cov1``, and ``sa.cov2``.
+
+        >>> vds1 = hc.read("data/example_lmmreg.vds")
+        >>> kinship_matrix = vds1.filter_variants_expr('va.useInKinship').rrm()
+        >>> eigen = kinship_matrix.eigen()
+        >>> lmm_vds = (vds1.filter_variants_expr('va.useInAssociation')
+        ...     .lmmreg_eigen(eigen, 'sa.pheno', ['sa.cov1', 'sa.cov2']))
+
+        Equivalent to:
+
+        >>> vds1 = hc.read("data/example_lmmreg.vds")
+        >>> ld_matrix = vds1.filter_variants_expr('va.useInKinship').ld_matrix()
+        >>> eigen = ld_matrix.eigen_rrm(vds1)
+        >>> lmm_vds = (vds1.filter_variants_expr('va.useInAssociation')
+        ...     .lmmreg_eigen(eigen, 'sa.pheno', ['sa.cov1', 'sa.cov2']))
+
+        **Notes**
+
+        See :py:meth:`~hail.VariantDataset.lmmreg` for detailed documentation on the linear mixed regression model. While that interface takes the kinship matrix as input, :py:meth:`~hail.VariantDataset.lmmreg_eigen` instead takes an eigendecomposition of the kinship matrix. This eigendecomposition may computed via :py:meth:`~hail.KinshipMatrix.eigen` on a kinship matrix (RRM or GRM) or via :py:meth:`~hail.LDMatrix.eigen_rmm` on an LD matrix. The latter approach is more efficient and scalable when the number of samples :math:`n` exceeds the number of variants :math:`m` used to define the RRM, which has rank at most the minimum of :math:`n` and :math:`m`.
+
+        Use :py:meth:`~hail.Eigendecomposition.take_right` with :math:`k` less than this rank to implicitly substitute a low-rank approximation. The computational complexity per variant is proportional to the number of eigenvectors retained.
+
+        :param eigen: Eigendecomposition to be used.
+        :type eigen: Eigendecomposition
+
+        :param str y: Response sample annotation.
+
+        :param covariates: List of covariate sample annotations.
+        :type covariates: list of str
+
+        :param str global_root: Global annotation root, a period-delimited path starting with ``global``.
+
+        :param str va_root: Variant annotation root, a period-delimited path starting with ``va``.
+
+        :param bool run_assoc: If true, run association testing in addition to fitting the global model.
+
+        :param bool use_ml: Use ML instead of REML throughout.
+
+        :param delta: Fixed delta value to use in the global model, overrides fitting delta.
+        :type delta: float or None
+
+        :param float sparsity_threshold: Genotype vector sparsity at or below which to use sparse genotype vector in rotation (advanced).
+
+        :param bool use_dosages: If true, use dosages rather than hard call genotypes.
+
+        :return: Variant dataset with linear mixed regression annotations.
+        :rtype: :py:class:`.VariantDataset`
+        """
+        
+        jvds = self._jvdf.lmmregEigen(eigen._jeigen, y, jarray(Env.jvm().java.lang.String, covariates), use_ml, global_root,
+                                      va_root, run_assoc, joption(delta), sparsity_threshold, use_dosages)
         return VariantDataset(self.hc, jvds)
 
     @handle_py4j
@@ -3756,9 +3834,9 @@ class VariantDataset(object):
 
         **Examples**
 
-        Compute the top 10 principal component scores, stored as sample annotations ``sa.scores.PC1``, ..., ``sa.scores.PC10`` of type Double:
+        Compute the top 5 principal component scores, stored as sample annotations ``sa.scores.PC1``, ..., ``sa.scores.PC5`` of type Double:
 
-        >>> vds_result = vds.pca('sa.scores')
+        >>> vds_result = vds.pca('sa.scores', k=5)
 
         Compute the top 5 principal component scores, loadings, and eigenvalues, stored as annotations ``sa.scores``, ``va.loadings``, and ``global.evals`` of type Array[Double]:
 
@@ -3906,7 +3984,15 @@ class VariantDataset(object):
         """
         Returns the signature of the global annotations contained in this VDS.
 
+        **Examples**
+
         >>> print(vds.global_schema)
+
+        The ``pprint`` module can be used to print the schema in a more human-readable format:
+
+        >>> from pprint import pprint
+        >>> pprint(vds.global_schema)
+
 
         :rtype: :class:`.Type`
         """
@@ -3921,7 +4007,14 @@ class VariantDataset(object):
         """
         Returns the signature of the column key (sample) contained in this VDS.
 
+        **Examples**
+
         >>> print(vds.colkey_schema)
+
+        The ``pprint`` module can be used to print the schema in a more human-readable format:
+
+        >>> from pprint import pprint
+        >>> pprint(vds.colkey_schema)
 
         :rtype: :class:`.Type`
         """
@@ -3936,7 +4029,14 @@ class VariantDataset(object):
         """
         Returns the signature of the sample annotations contained in this VDS.
 
+        **Examples**
+
         >>> print(vds.sample_schema)
+
+        The ``pprint`` module can be used to print the schema in a more human-readable format:
+
+        >>> from pprint import pprint
+        >>> pprint(vds.sample_schema)
 
         :rtype: :class:`.Type`
         """
@@ -3951,7 +4051,14 @@ class VariantDataset(object):
         """
         Returns the signature of the row key (variant) contained in this VDS.
 
+        **Examples**
+
         >>> print(vds.rowkey_schema)
+
+        The ``pprint`` module can be used to print the schema in a more human-readable format:
+
+        >>> from pprint import pprint
+        >>> pprint(vds.rowkey_schema)
 
         :rtype: :class:`.Type`
         """
@@ -3966,7 +4073,14 @@ class VariantDataset(object):
         """
         Returns the signature of the variant annotations contained in this VDS.
 
+        **Examples**
+
         >>> print(vds.variant_schema)
+
+        The ``pprint`` module can be used to print the schema in a more human-readable format:
+
+        >>> from pprint import pprint
+        >>> pprint(vds.variant_schema)
 
         :rtype: :class:`.Type`
         """
@@ -3981,7 +4095,14 @@ class VariantDataset(object):
         """
         Returns the signature of the genotypes contained in this VDS.
 
+        **Examples**
+
         >>> print(vds.genotype_schema)
+
+        The ``pprint`` module can be used to print the schema in a more human-readable format:
+
+        >>> from pprint import pprint
+        >>> pprint(vds.genotype_schema)
 
         :rtype: :class:`.Type`
         """
@@ -4244,6 +4365,12 @@ class VariantDataset(object):
 
         >>> vds_result = vds.rename_samples({'ID1': 'id1', 'ID2': 'id2'})
 
+        Use a file with an "old_id" and "new_id" column to rename samples:
+
+        >>> mapping_table = hc.import_table('data/sample_mapping.txt')
+        >>> mapping_dict = {row.old_id: row.new_id for row in mapping_table.collect()}
+        >>> vds_result = vds.rename_samples(mapping_dict)
+
         :param dict mapping: Mapping from old to new sample IDs.
 
         :return: Dataset with remapped sample IDs.
@@ -4285,6 +4412,24 @@ class VariantDataset(object):
         return VariantDataset(self.hc, jvds)
 
     @handle_py4j
+    @typecheck_method(max_partitions=integral)
+    def naive_coalesce(self, max_partitions):
+        """Naively descrease the number of partitions.
+
+        .. warning ::
+
+          :py:meth:`~hail.VariantDataset.naive_coalesce` simply combines adjacent partitions to achieve the desired number.  It does not attempt to rebalance, unlike :py:meth:`~hail.VariantDataset.repartition`, so it can produce a heavily unbalanced dataset.  An unbalanced dataset can be inefficient to operate on because the work is not evenly distributed across partitions.
+
+        :param int max_partitions: Desired number of partitions.  If the current number of partitions is less than ``max_partitions``, do nothing.
+
+        :return: Variant dataset with the number of partitions equal to at most ``max_partitions``
+        :rtype: :class:`.VariantDataset`
+        """
+
+        jvds = self._jvds.naiveCoalesce(max_partitions)
+        return VariantDataset(self.hc, jvds)
+    
+    @handle_py4j
     @typecheck_method(force_block=bool,
                       force_gramian=bool)
     def rrm(self, force_block=False, force_gramian=False):
@@ -4323,7 +4468,7 @@ class VariantDataset(object):
         return KinshipMatrix(self._jvdf.rrm(force_block, force_gramian))
 
     @handle_py4j
-    @typecheck_method(other=anytype,
+    @typecheck_method(other=vds_type,
                       tolerance=numeric)
     def same(self, other, tolerance=1e-6):
         """True if the two variant datasets have the same variants, samples, genotypes, and annotation schemata and values.
@@ -4874,7 +5019,7 @@ class VariantDataset(object):
         +===========================+========+========================================================+
         | ``callRate``              | Double | Fraction of samples with called genotypes              |
         +---------------------------+--------+--------------------------------------------------------+
-        | ``AF``                    | Double | Calculated minor allele frequency (q)                  |
+        | ``AF``                    | Double | Calculated alternate allele frequency (q)              |
         +---------------------------+--------+--------------------------------------------------------+
         | ``AC``                    | Int    | Count of alternate alleles                             |
         +---------------------------+--------+--------------------------------------------------------+
@@ -4934,9 +5079,6 @@ class VariantDataset(object):
         the `LOFTEE plugin <https://github.com/konradjk/loftee>`__
         on the current variant dataset and adds the result as a variant annotation.
 
-        If the variant annotation path defined by ``root`` already exists and its schema matches the VEP schema, then
-        Hail only runs VEP for variants for which the annotation is missing.
-
         **Examples**
 
         Add VEP annotations to the dataset:
@@ -4994,7 +5136,7 @@ class VariantDataset(object):
         **Annotations**
 
         Annotations with the following schema are placed in the location specified by ``root``.
-        The schema can be confirmed with :py:attr:`~hail.VariantDataset.variant_schema`, :py:attr:`~hail.VariantDataset.sample_schema`, and :py:attr:`~hail.VariantDataset.global_schema`.
+        The full resulting dataset schema can be queried with :py:attr:`~hail.VariantDataset.variant_schema`.
 
         .. code-block:: text
 
@@ -5139,8 +5281,8 @@ class VariantDataset(object):
 
         :param str root: Variant annotation path to store VEP output.
 
-        :param bool csq: If true, annotates VCF CSQ field as a String.
-            If False, annotates with the full nested struct schema
+        :param bool csq: If ``True``, annotates VCF CSQ field as a String.
+            If ``False``, annotates with the full nested struct schema
 
         :return: An annotated with variant annotations from VEP.
         :rtype: :py:class:`.VariantDataset`
@@ -5300,3 +5442,5 @@ class VariantDataset(object):
         jkt = self._jvds.makeKT(variant_expr, genotype_expr,
                                 jarray(Env.jvm().java.lang.String, wrap_to_list(key)), separator)
         return KeyTable(self.hc, jkt)
+
+vds_type.set(VariantDataset)
