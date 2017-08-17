@@ -80,7 +80,7 @@ class LDMatrix:
         
         return Eigen(self._jldm.eigenRRM(vds._jvds, joption(k)))
     
-        @typecheck_method(vds=anytype,
+    @typecheck_method(vds=anytype,
                       k=nullable(integral))
     def eigen_distributed_rrm(self, vds, k=None):
         """
