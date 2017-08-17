@@ -1,5 +1,5 @@
 from hail.representation import Variant
-from hail.eigendecomposition import Eigendecomposition
+from hail.eigen import Eigen, EigenDistributed
 from hail.typecheck import *
 from hail.java import *
 
@@ -75,7 +75,33 @@ class LDMatrix:
         :type k: int or None
         
         :return: Eigendecomposition of the kinship matrix.
-        :rtype: Eigendecomposition
+        :rtype: Eigen
         """
         
-        return Eigendecomposition(self._jldm.eigenRRM(vds._jvds, joption(k)))
+        return Eigen(self._jldm.eigenRRM(vds._jvds, joption(k)))
+    
+        @typecheck_method(vds=anytype,
+                      k=nullable(integral))
+    def eigen_distributed_rrm(self, vds, k=None):
+        """
+        Compute an eigendecomposition of the Realized Relationship Matrix (RRM) of the variant dataset via an
+        eigendecomposition of the LD matrix.
+        
+        *Notes*
+
+        This method computes and then uses eigendecomposition of the LD matrix to derive an eigendecomposition
+        of the corresponding RRM, with eigenvectors stored as a distributed matrix. All variants in the LD matrix
+        must be present in the VDS. The number of eigenvectors returned is the minimum of variants, the number of
+        samples used to form the LD matrix, and k.
+                            
+        :param vds: Variant dataset
+        :type vds: :py:class:`.VariantDataset`
+        
+        :param k: Upper bound on the number of eigenvectors to return.
+        :type k: int or None
+        
+        :return: Eigendecomposition of the kinship matrix.
+        :rtype: EigenDistributed
+        """
+        
+        return EigenDistributed(self._jldm.eigenDistributedRRM(vds._jvds, joption(k)))

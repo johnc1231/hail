@@ -10,7 +10,6 @@ import org.apache.spark.mllib.linalg
 import org.apache.spark.mllib.linalg.{DenseMatrix, Matrix, Vectors}
 import org.apache.spark.mllib.linalg.distributed.{BlockMatrix, IndexedRow, IndexedRowMatrix}
 
-
 object LDMatrix {
   /**
     * Computes the LD matrix for the given VDS.
@@ -26,7 +25,7 @@ object LDMatrix {
     }
     
     val variantsKept = filteredNormalizedHardCalls.map(_._1).collect()
-    assert(variantsKept.isSorted, "ld_matrix: Array of variants is not sorted. This is a bug")
+    assert(variantsKept.isSorted, "ld_matrix: Array of variants is not sorted. This is a bug.")
 
     val normalizedIndexedRows = filteredNormalizedHardCalls.map(_._2).zipWithIndex()
       .map{ case (values, idx) => IndexedRow(idx, Vectors.dense(values))}
@@ -75,7 +74,7 @@ object LDMatrix {
 case class LDMatrix(matrix: IndexedRowMatrix, variants: Array[Variant], nSamplesUsed: Int) extends {
   def toLocalMatrix: Matrix = matrix.toBlockMatrixDense().toLocalMatrix()
   
-  def eigenRRM(vds: VariantDataset, optNEigs: Option[Int]): Eigendecomposition = {
+  def eigenRRM(vds: VariantDataset, optNEigs: Option[Int]): Eigen = {
     val variantSet = variants.toSet
 
     val maxRank = variants.length min nSamplesUsed
@@ -131,10 +130,10 @@ case class LDMatrix(matrix: IndexedRowMatrix, variants: Array[Variant], nSamples
     
     filteredVDS.unpersist()
     
-    Eigendecomposition(vds.sSignature, vds.sampleIds.toArray, U, S_K)
+    Eigen(vds.sSignature, vds.sampleIds.toArray, U, S_K)
   }
   
-  def eigenRRMDist(vds: VariantDataset, optNEigs: Option[Int]): EigendecompositionDist = {
+  def eigenDistributedRRM(vds: VariantDataset, optNEigs: Option[Int]): EigenDistributed = {
     val variantSet = variants.toSet
 
     val maxRank = variants.length min nSamplesUsed
@@ -186,6 +185,6 @@ case class LDMatrix(matrix: IndexedRowMatrix, variants: Array[Variant], nSamples
    
     filteredVDS.unpersist()
 
-    EigendecompositionDist(vds.sSignature, vds.sampleIds.toArray, U, S_K)
+    EigenDistributed(vds.sSignature, vds.sampleIds.toArray, U, S_K)
   }
 }
