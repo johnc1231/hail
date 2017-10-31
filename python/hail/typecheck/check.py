@@ -79,6 +79,7 @@ class AnyChecker(TypeChecker):
     def expects(self):
         return 'any'
 
+
 class CharChecker(TypeChecker):
     def __init__(self):
         super(CharChecker, self).__init__()
@@ -88,6 +89,7 @@ class CharChecker(TypeChecker):
 
     def expects(self):
         return 'char'
+
 
 class LiteralChecker(TypeChecker):
     def __init__(self, t):
@@ -101,6 +103,36 @@ class LiteralChecker(TypeChecker):
         return extract(self.t)
 
 
+class LazyChecker(TypeChecker):
+    def __init__(self):
+        self.t = None
+        super(LazyChecker, self).__init__()
+
+    def set(self, t):
+        self.t = t
+
+    def check(self, x):
+        if not self.t:
+            raise RuntimeError("LazyChecker not initialized. Use 'set' to provide the expected type")
+        return isinstance(x, self.t)
+
+    def expects(self):
+        if not self.t:
+            raise RuntimeError("LazyChecker not initialized. Use 'set' to provide the expected type")
+        return extract(self.t)
+
+class ExactlyTypeChecker(TypeChecker):
+    def __init__(self, v):
+        self.v = v
+        super(ExactlyTypeChecker, self).__init__()
+
+    def check(self, x):
+        return x == self.v
+
+    def expects(self):
+        return str(self.v)
+
+
 def only(t):
     if isinstance(t, type) or type(t) is ClassType:
         return LiteralChecker(t)
@@ -110,8 +142,16 @@ def only(t):
         raise RuntimeError("invalid typecheck signature: expected 'type' or 'TypeChecker', found '%s'" % type(t))
 
 
+def exactly(v):
+    return ExactlyTypeChecker(v)
+
+
 def oneof(*args):
     return MultipleTypeChecker([only(x) for x in args])
+
+
+def enumeration(*args):
+    return MultipleTypeChecker([exactly(x) for x in args])
 
 
 def nullable(t):
@@ -129,6 +169,8 @@ def tupleof(t):
 def dictof(k, v):
     return DictChecker(only(k), only(v))
 
+def lazy():
+    return LazyChecker()
 
 none = only(NoneType)
 
@@ -141,6 +183,7 @@ integral = oneof(int, long)
 numeric = oneof(int, long, float)
 
 char = CharChecker()
+
 
 def check_all(f, args, kwargs, checks, is_method):
     spec = getargspec(f)

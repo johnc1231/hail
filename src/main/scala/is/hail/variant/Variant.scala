@@ -26,9 +26,19 @@ object Contig {
       case (None, None) => lhs.compare(rhs)
     }
   }
-}
 
-case class Contig(name: String, length: Int)
+  def gen(gr: GenomeReference): Gen[(String, Int)] = Gen.oneOfSeq(gr.lengths.toSeq)
+
+  def gen(gr: GenomeReference, contig: String): Gen[(String, Int)] = {
+    assert(gr.isValidContig(contig), s"Contig $contig not found in genome reference.")
+    Gen.const((contig, gr.contigLength(contig)))
+  }
+
+  def gen(nameGen: Gen[String] = Gen.identifier, lengthGen: Gen[Int] = Gen.choose(1000000, 500000000)): Gen[(String, Int)] = for {
+    name <- nameGen
+    length <- lengthGen
+  } yield (name, length)
+}
 
 object AltAlleleType extends Enumeration {
   type AltAlleleType = Value
@@ -44,9 +54,6 @@ object AltAllele {
   def sparkSchema: StructType = StructType(Array(
     StructField("ref", StringType, nullable = false),
     StructField("alt", StringType, nullable = false)))
-
-  val expandedType: TStruct = TStruct("ref" -> TString,
-    "alt" -> TString)
 
   def fromRow(r: Row): AltAllele =
     AltAllele(r.getString(0), r.getString(1))
@@ -91,8 +98,8 @@ case class AltAllele(ref: String,
 
   def isStar: Boolean = alt == "*"
 
-  def isSNP: Boolean = !isStar && ( (ref.length == 1 && alt.length == 1) ||
-    (ref.length == alt.length && nMismatch == 1) )
+  def isSNP: Boolean = !isStar && ((ref.length == 1 && alt.length == 1) ||
+    (ref.length == alt.length && nMismatch == 1))
 
   def isMNP: Boolean = ref.length > 1 &&
     ref.length == alt.length &&
@@ -104,7 +111,7 @@ case class AltAllele(ref: String,
 
   def isIndel: Boolean = isInsertion || isDeletion
 
-  def isComplex: Boolean = ref.length != alt.length && !isInsertion && !isDeletion
+  def isComplex: Boolean = ref.length != alt.length && !isInsertion && !isDeletion && !isStar
 
   def isTransition: Boolean = isSNP && {
     val (refChar, altChar) = strippedSNP
@@ -161,7 +168,7 @@ object Variant {
   def parse(str: String): Variant = {
     val colonSplit = str.split(":")
     if (colonSplit.length != 4)
-      fatal(s"expected 4 colon-delimited fields, but found ${ colonSplit.length }")
+      fatal(s"invalid variant, expected 4 colon-delimited fields, found ${ colonSplit.length }: $str")
     val Array(contig, start, ref, alts) = colonSplit
     Variant(contig, start.toInt, ref, alts.split(","))
   }
@@ -183,12 +190,6 @@ object Variant {
       StructField("altAlleles", ArrayType(AltAllele.sparkSchema, containsNull = false),
         nullable = false)))
 
-  def expandedType: TStruct =
-    TStruct("contig" -> TString,
-      "start" -> TInt,
-      "ref" -> TString,
-      "altAlleles" -> TArray(AltAllele.expandedType))
-
   def fromRow(r: Row) =
     Variant(r.getAs[String](0),
       r.getAs[Int](1),
@@ -201,13 +202,13 @@ object Variant {
     new OrderedKey[Locus, Variant] {
       def project(key: Variant): Locus = key.locus
 
-      def kOrd: Ordering[Variant] = implicitly[Ordering[Variant]]
+      val kOrd: Ordering[Variant] = Variant.order
 
-      def pkOrd: Ordering[Locus] = implicitly[Ordering[Locus]]
+      val pkOrd: Ordering[Locus] = Locus.order
 
-      def kct: ClassTag[Variant] = implicitly[ClassTag[Variant]]
+      val kct: ClassTag[Variant] = implicitly[ClassTag[Variant]]
 
-      def pkct: ClassTag[Locus] = implicitly[ClassTag[Locus]]
+      val pkct: ClassTag[Locus] = implicitly[ClassTag[Locus]]
     }
 
   def variantUnitRdd(sc: SparkContext, input: String): RDD[(Variant, Unit)] =
@@ -225,50 +226,50 @@ object Variant {
         }.value
       }
 
-  implicit def variantOrder: Ordering[Variant] = new Ordering[Variant] {
+  implicit def order: Ordering[Variant] = new Ordering[Variant] {
     def compare(x: Variant, y: Variant): Int = x.compare(y)
   }
 }
 
 object VariantSubgen {
   val random = VariantSubgen(
-    contigGen = Gen.identifier,
-    startGen = Gen.posInt,
+    contigGen = Contig.gen(),
     nAllelesGen = Gen.frequency((5, Gen.const(2)), (1, Gen.choose(2, 10))),
     refGen = genDNAString,
     altGen = Gen.frequency((10, genDNAString),
       (1, Gen.const("*"))))
 
-  val plinkCompatible = random.copy(
-    contigGen = Gen.choose(1, 22).map(_.toString)
-  )
+  val plinkCompatible = random.copy(contigGen = Contig.gen(nameGen = Gen.choose(1, 22).map(_.toString)))
 
   val biallelic = random.copy(nAllelesGen = Gen.const(2))
+
+  def fromGenomeRef(gr: GenomeReference): VariantSubgen =
+    random.copy(contigGen = Contig.gen(gr))
 }
 
 case class VariantSubgen(
-  contigGen: Gen[String],
-  startGen: Gen[Int],
+  contigGen: Gen[(String, Int)],
   nAllelesGen: Gen[Int],
   refGen: Gen[String],
   altGen: Gen[String]) {
 
   def gen: Gen[Variant] =
-    for (contig <- contigGen;
-      start <- startGen;
+    for ((contig, length) <- contigGen;
+      start <- Gen.choose(1, length);
       nAlleles <- nAllelesGen;
       ref <- refGen;
       altAlleles <- Gen.distinctBuildableOfN[Array, String](
-        nAlleles,
+        nAlleles - 1,
         altGen)
         .filter(!_.contains(ref))) yield
-      Variant(contig, start, ref, altAlleles.tail.map(alt => AltAllele(ref, alt)))
+      Variant(contig, start, ref, altAlleles.map(alt => AltAllele(ref, alt)))
 }
 
 case class Variant(contig: String,
   start: Int,
   ref: String,
   altAlleles: IndexedSeq[AltAllele]) {
+  require(altAlleles.forall(_.ref == ref))
 
   /* The position is 1-based. Telomeres are indicated by using positions 0 or N+1, where N is the length of the
        corresponding chromosome or contig. See the VCF spec, v4.2, section 1.4.1. */
@@ -301,12 +302,18 @@ case class Variant(contig: String,
   def isAutosomalOrPseudoAutosomal: Boolean =
     isAutosomal || inXPar || inYPar
 
+  def isAutosomalOrPseudoAutosomal(gr: GRBase): Boolean = isAutosomal(gr) || inXPar(gr) || inYPar(gr)
+
   def isAutosomal = !(inX || inY || isMitochondrial)
+
+  def isAutosomal(gr: GRBase): Boolean = !(inX(gr) || inY(gr) || isMitochondrial(gr))
 
   def isMitochondrial = {
     val c = contig.toUpperCase
     c == "MT" || c == "M" || c == "26"
   }
+
+  def isMitochondrial(gr: GRBase): Boolean = gr.isMitochondrial(contig)
 
   // PAR regions of sex chromosomes: https://en.wikipedia.org/wiki/Pseudoautosomal_region
   // Boundaries for build GRCh37: http://www.ncbi.nlm.nih.gov/projects/genome/assembly/grc/human/
@@ -317,15 +324,27 @@ case class Variant(contig: String,
   // FIXME: will replace with contig == "X" etc once bgen/plink support is merged and conversion is handled by import
   def inXPar: Boolean = inX && inXParPos
 
+  def inXPar(gr: GRBase): Boolean = gr.inXPar(locus)
+
   def inYPar: Boolean = inY && inYParPos
+
+  def inYPar(gr: GRBase): Boolean = gr.inYPar(locus)
 
   def inXNonPar: Boolean = inX && !inXParPos
 
+  def inXNonPar(gr: GRBase): Boolean = inX(gr) && !inXPar(gr)
+
   def inYNonPar: Boolean = inY && !inYParPos
+
+  def inYNonPar(gr: GRBase): Boolean = inY(gr) && !inYPar(gr)
 
   private def inX: Boolean = contig.toUpperCase == "X" || contig == "23" || contig == "25"
 
+  private def inX(gr: GRBase): Boolean = gr.inX(contig)
+
   private def inY: Boolean = contig.toUpperCase == "Y" || contig == "24"
+
+  private def inY(gr: GRBase): Boolean = gr.inY(contig)
 
   import CopyState._
 
@@ -334,6 +353,17 @@ case class Variant(contig: String,
       if (inXNonPar)
         HemiX
       else if (inYNonPar)
+        HemiY
+      else
+        Auto
+    else
+      Auto
+
+  def copyState(sex: Sex.Sex, gr: GenomeReference): CopyState =
+    if (sex == Sex.Male)
+      if (inXNonPar(gr))
+        HemiX
+      else if (inYNonPar(gr))
         HemiY
       else
         Auto
@@ -353,19 +383,7 @@ case class Variant(contig: String,
     if (c != 0)
       return c
 
-    c = nAltAlleles.compare(that.nAltAlleles)
-    if (c != 0)
-      return c
-
-    var i = 0
-    while (i < altAlleles.length) {
-      c = altAlleles(i).alt.compare(that.altAlleles(i).alt)
-      if (c != 0)
-        return c
-      i += 1
-    }
-
-    0
+    Ordering.Iterable[AltAllele].compare(altAlleles, that.altAlleles)
   }
 
   def minRep: Variant = {

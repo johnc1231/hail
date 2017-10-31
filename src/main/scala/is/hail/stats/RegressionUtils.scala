@@ -4,85 +4,57 @@ import breeze.linalg._
 import is.hail.annotations.Annotation
 import is.hail.expr._
 import is.hail.utils._
-import is.hail.variant.{Genotype, VariantDataset}
+import is.hail.variant.{Genotype, VariantSampleMatrix}
 import org.apache.spark.sql.Row
 
 object RegressionUtils {
-  // mask == null is interpreted as no mask
-  // impute uses mean for missing gt rather than Double.NaN
-  def hardCalls(gs: Iterable[Genotype], nKept: Int, mask: Array[Boolean] = null, impute: Boolean = true): SparseVector[Double] = {
-    val gts = gs.hardCallIterator
-    val rows = new ArrayBuilder[Int]()
-    val vals = new ArrayBuilder[Double]()
-    val missingSparseIndices = new ArrayBuilder[Int]()
-    var i = 0
-    var row = 0
-    var sum = 0
-    while (gts.hasNext) {
-      val gt = gts.next()
-      if (mask == null || mask(i)) {
-        if (gt != 0) {
-          rows += row
-          if (gt != -1) {
-            sum += gt
-            vals += gt.toDouble
-          } else {
-            missingSparseIndices += vals.size
-            vals += Double.NaN
-          }
-        }
-        row += 1
-      }
-      i += 1
-    }
-    assert((mask == null || i == mask.size) && row == nKept)
+  def inputVector(x: DenseVector[Double],
+    globalAnnotation: Annotation, sampleIds: IndexedSeq[Annotation], sampleAnnotations: IndexedSeq[Annotation],
+    row: (Annotation, (Annotation, Iterable[Annotation])),
+    ec: EvalContext,
+    xf: () => java.lang.Double,
+    completeSampleIndex: Array[Int],
+    missingSamples: ArrayBuilder[Int]) {
+    require(x.length == completeSampleIndex.length)
 
-    val valsArray = vals.result()
-    val nMissing = missingSparseIndices.size
-    if (impute) {
-      val mean = sum.toDouble / (nKept - nMissing)
-      i = 0
-      while (i < nMissing) {
-        valsArray(missingSparseIndices(i)) = mean
+    val (v, (va, gs)) = row
+
+    ec.setAll(globalAnnotation, v, va)
+
+    missingSamples.clear()
+    val n = completeSampleIndex.length
+    val git = gs.iterator
+    var i = 0
+    var j = 0
+    var sum = 0d
+    while (j < n) {
+      while (i < completeSampleIndex(j)) {
+        git.next()
         i += 1
       }
-    }
+      assert(completeSampleIndex(j) == i)
 
-    new SparseVector[Double](rows.result(), valsArray, row)
-  }
-
-  // mask == null is interpreted as no mask
-  // impute uses mean for missing dosage rather than Double.NaN
-  def dosages(gs: Iterable[Genotype], nKept: Int, mask: Array[Boolean] = null, impute: Boolean = true): DenseVector[Double] = {
-    val gts = gs.dosageIterator
-    val vals = Array.ofDim[Double](nKept)
-    val missingRows = new ArrayBuilder[Int]()
-    var i = 0
-    var row = 0
-    var sum = 0d
-    while (gts.hasNext) {
-      val gt = gts.next()
-      if (mask == null || mask(i)) {
-        if (gt != -1) {
-          sum += gt
-          vals(row) = gt
-        } else
-          missingRows += row
-        row += 1
-      }
+      val g = git.next()
+      ec.set(3, sampleIds(i))
+      ec.set(4, sampleAnnotations(i))
+      ec.set(5, g)
+      val dosage = xf()
+      if (dosage != null) {
+        sum += dosage
+        x(j) = dosage
+      } else
+        missingSamples += j
       i += 1
+      j += 1
     }
-    assert((mask == null || i == mask.size) && row == nKept)
 
-    val nMissing = missingRows.size
-    val meanValue = if (impute) sum / (nKept - nMissing) else Double.NaN
+    val nMissing = missingSamples.size
+    val meanValue = sum / (n - nMissing)
     i = 0
     while (i < nMissing) {
-      vals(missingRows(i)) = meanValue
+      x(missingSamples(i)) = meanValue
       i += 1
     }
-
-    DenseVector(vals)
   }
 
   // keyedRow consists of row key followed by numeric data
@@ -158,67 +130,86 @@ object RegressionUtils {
           meanSq - mean * mean
         })
 
-      val gtDict = Array(0, - mean / stdDev, (1 - mean) / stdDev, (2 - mean) / stdDev)
+      val gtDict = Array(0, -mean / stdDev, (1 - mean) / stdDev, (2 - mean) / stdDev)
       var i = 0
       while (i < nSamples) {
         vals(i) = gtDict(vals(i).toInt + 1)
         i += 1
       }
-      
+
       Some(vals)
     } else
       None
   }
 
-  def toDouble(t: Type, code: String): Any => Double = t match {
-    case TInt => _.asInstanceOf[Int].toDouble
-    case TLong => _.asInstanceOf[Long].toDouble
-    case TFloat => _.asInstanceOf[Float].toDouble
-    case TDouble => _.asInstanceOf[Double]
-    case TBoolean => _.asInstanceOf[Boolean].toDouble
-    case _ => fatal(s"Sample annotation `$code' must be numeric or Boolean, got $t")
+  def parseExprAsDouble(expr: String, ec: EvalContext): () => java.lang.Double = {
+    val (xt, xf0) = Parser.parseExpr(expr, ec)
+
+    def castToDouble[T](f: (T) => Double): () => java.lang.Double = { () =>
+      val a = xf0()
+      if (a == null)
+        null
+      else
+        f(a.asInstanceOf[T])
+    }
+
+    xt match {
+      case TInt32 => castToDouble[Int](_.toDouble)
+      case TInt64 => castToDouble[Long](_.toDouble)
+      case TFloat32 => castToDouble[Float](_.toDouble)
+      case TFloat64 => () => xf0().asInstanceOf[java.lang.Double]
+      case TBoolean => castToDouble[Boolean](_.toDouble)
+      case _ => fatal(s"x expression `$expr' must be numeric or Boolean, got $xt")
+    }
   }
 
-  def getSampleAnnotation(vds: VariantDataset, annot: String, ec: EvalContext): IndexedSeq[Option[Double]] = {
-    val (aT, aQ) = Parser.parseExpr(annot, ec)
-    val aToDouble = toDouble(aT, annot)
+  def getSampleAnnotation[RPK, RK, T >: Null](vsm: VariantSampleMatrix[RPK, RK, T], annot: String, ec: EvalContext): IndexedSeq[Option[Double]] = {
+    val aQ = parseExprAsDouble(annot, ec)
 
-    vds.sampleIdsAndAnnotations.map { case (s, sa) =>
+    vsm.sampleIdsAndAnnotations.map { case (s, sa) =>
       ec.setAll(s, sa)
-      Option(aQ()).map(aToDouble)
+      val a = aQ()
+      if (a != null)
+        Some(a: Double)
+      else
+        None
     }
   }
 
   // IndexedSeq indexed by samples, Array by annotations
-  def getSampleAnnotations(vds: VariantDataset, annots: Array[String], ec: EvalContext): IndexedSeq[Array[Option[Double]]] = {
-    val (aT, aQ0) = annots.map(Parser.parseExpr(_, ec)).unzip
-    val aQ = () => aQ0.map(_.apply())
-    val aToDouble = (aT, annots).zipped.map(toDouble)
+  def getSampleAnnotations[RPK, RK, T >: Null](vds: VariantSampleMatrix[RPK, RK, T], annots: Array[String], ec: EvalContext): IndexedSeq[Array[Option[Double]]] = {
+    val aQs = annots.map(parseExprAsDouble(_, ec))
 
     vds.sampleIdsAndAnnotations.map { case (s, sa) =>
       ec.setAll(s, sa)
-      (aQ().map(Option(_)), aToDouble).zipped.map(_.map(_))
+      aQs.map { aQ =>
+        val a = aQ()
+        if (a != null)
+          Some(a: Double)
+        else
+          None
+      }
     }
   }
 
-  def getPhenoCovCompleteSamples(
-    vds: VariantDataset,
+  def getPhenoCovCompleteSamples[RPK, RK, T >: Null](
+    vsm: VariantSampleMatrix[RPK, RK, T],
     yExpr: String,
-    covExpr: Array[String]): (DenseVector[Double], DenseMatrix[Double], IndexedSeq[Annotation]) = {
+    covExpr: Array[String]): (DenseVector[Double], DenseMatrix[Double], Array[Int]) = {
 
     val nCovs = covExpr.size + 1 // intercept
 
     val symTab = Map(
-      "s" -> (0, TString),
-      "sa" -> (1, vds.saSignature))
+      "s" -> (0, vsm.sSignature),
+      "sa" -> (1, vsm.saSignature))
 
     val ec = EvalContext(symTab)
 
-    val yIS = getSampleAnnotation(vds, yExpr, ec)
-    val covIS = getSampleAnnotations(vds, covExpr, ec)
+    val yIS = getSampleAnnotation(vsm, yExpr, ec)
+    val covIS = getSampleAnnotations(vsm, covExpr, ec)
 
     val (yForCompleteSamples, covForCompleteSamples, completeSamples) =
-      (yIS, covIS, vds.sampleIds)
+      (yIS, covIS, 0 until vsm.nSamples)
         .zipped
         .filter((y, c, s) => y.isDefined && c.forall(_.isDefined))
 
@@ -234,16 +225,16 @@ object RegressionUtils {
     val covArray = covForCompleteSamples.flatMap(1.0 +: _.map(_.get)).toArray
     val cov = new DenseMatrix(rows = n, cols = nCovs, data = covArray, offset = 0, majorStride = nCovs, isTranspose = true)
 
-    if (n < vds.nSamples)
-      warn(s"${vds.nSamples - n} of ${vds.nSamples} samples have a missing phenotype or covariate.")
+    if (n < vsm.nSamples)
+      warn(s"${ vsm.nSamples - n } of ${ vsm.nSamples } samples have a missing phenotype or covariate.")
 
-    (y, cov, completeSamples)
+    (y, cov, completeSamples.toArray)
   }
 
-  def getPhenosCovCompleteSamples(
-    vds: VariantDataset,
+  def getPhenosCovCompleteSamples[RPK, RK, T >: Null](
+    vsm: VariantSampleMatrix[RPK, RK, T],
     yExpr: Array[String],
-    covExpr: Array[String]): (DenseMatrix[Double], DenseMatrix[Double], IndexedSeq[Annotation]) = {
+    covExpr: Array[String]): (DenseMatrix[Double], DenseMatrix[Double], Array[Int]) = {
 
     val nPhenos = yExpr.size
     val nCovs = covExpr.size + 1 // intercept
@@ -253,15 +244,15 @@ object RegressionUtils {
 
     val symTab = Map(
       "s" -> (0, TString),
-      "sa" -> (1, vds.saSignature))
+      "sa" -> (1, vsm.saSignature))
 
     val ec = EvalContext(symTab)
 
-    val yIS = getSampleAnnotations(vds, yExpr, ec)
-    val covIS = getSampleAnnotations(vds, covExpr, ec)
+    val yIS = getSampleAnnotations(vsm, yExpr, ec)
+    val covIS = getSampleAnnotations(vsm, covExpr, ec)
 
     val (yForCompleteSamples, covForCompleteSamples, completeSamples) =
-      (yIS, covIS, vds.sampleIds)
+      (yIS, covIS, 0 until vsm.nSamples)
         .zipped
         .filter((y, c, s) => y.forall(_.isDefined) && c.forall(_.isDefined))
 
@@ -275,10 +266,10 @@ object RegressionUtils {
     val covArray = covForCompleteSamples.flatMap(1.0 +: _.map(_.get)).toArray
     val cov = new DenseMatrix(rows = n, cols = nCovs, data = covArray, offset = 0, majorStride = nCovs, isTranspose = true)
 
-    if (n < vds.nSamples)
-      warn(s"${vds.nSamples - n} of ${vds.nSamples} samples have a missing phenotype or covariate.")
+    if (n < vsm.nSamples)
+      warn(s"${ vsm.nSamples - n } of ${ vsm.nSamples } samples have a missing phenotype or covariate.")
 
-    (y, cov, completeSamples)
+    (y, cov, completeSamples.toArray)
   }
 
   // Retrofitting for 0.1, will be removed at 2.0 when constant checking is dropped (unless otherwise useful)
@@ -294,7 +285,7 @@ object RegressionUtils {
     }
     true
   }
-    
+
   // Retrofitting for 0.1, will be removed at 2.0 when linreg AC is calculated post-imputation
   def hardCallsWithAC(gs: Iterable[Genotype], nKept: Int, mask: Array[Boolean] = null, impute: Boolean = true): (SparseVector[Double], Double) = {
     val gts = gs.hardCallIterator

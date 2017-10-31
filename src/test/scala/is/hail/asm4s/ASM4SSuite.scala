@@ -32,6 +32,14 @@ class ASM4SSuite extends TestNGSuite {
     assert(f(-2) == 3)
   }
 
+  @Test def iinc(): Unit = {
+    val fb = functionBuilder[Int]
+    val l = fb.newLocal[Int]
+    fb.emit(_return(Code(l := 0, l++, l += 2, l)))
+    val f = fb.result()()
+    assert(f() == 3)
+  }
+
   @Test def array(): Unit = {
     val hb = functionBuilder[Int, Int]
     val arr = hb.newLocal[Array[Int]]()
@@ -196,6 +204,92 @@ class ASM4SSuite extends TestNGSuite {
     Prop.forAll(Gen.choose(0, 100)) { i =>
       fibonacciReference(i) == f(i)
     }
+  }
+
+  @Test def nanAlwaysComparesFalse(): Unit = {
+    Prop.forAll { (x: Double) =>
+      {
+        val fb = functionBuilder[Boolean]
+        fb.emit(_return(Double.NaN < x))
+        val f = fb.result()()
+        assert(!f())
+      }
+      {
+        val fb = functionBuilder[Boolean]
+        fb.emit(_return(Double.NaN <= x))
+        val f = fb.result()()
+        assert(!f())
+      }
+      {
+        val fb = functionBuilder[Boolean]
+        fb.emit(_return(Double.NaN > x))
+        val f = fb.result()()
+        assert(!f())
+      }
+      {
+        val fb = functionBuilder[Boolean]
+        fb.emit(_return(Double.NaN >= x))
+        val f = fb.result()()
+        assert(!f())
+      }
+      {
+        val fb = functionBuilder[Boolean]
+        fb.emit(_return(new CodeDouble(Double.NaN).ceq(x)))
+        val f = fb.result()()
+        assert(!f())
+      }
+      {
+        val fb = functionBuilder[Boolean]
+        fb.emit(_return(new CodeDouble(Double.NaN).cne(x)))
+        val f = fb.result()()
+        assert(f())
+      }
+
+      true
+    }.check()
+  }
+
+  @Test def nanFloatAlwaysComparesFalse(): Unit = {
+    Prop.forAll { (x: Float) =>
+      {
+        val fb = functionBuilder[Boolean]
+        fb.emit(_return(Float.NaN < x))
+        val f = fb.result()()
+        assert(!f())
+      }
+      {
+        val fb = functionBuilder[Boolean]
+        fb.emit(_return(Float.NaN <= x))
+        val f = fb.result()()
+        assert(!f())
+      }
+      {
+        val fb = functionBuilder[Boolean]
+        fb.emit(_return(Float.NaN > x))
+        val f = fb.result()()
+        assert(!f())
+      }
+      {
+        val fb = functionBuilder[Boolean]
+        fb.emit(_return(Float.NaN >= x))
+        val f = fb.result()()
+        assert(!f())
+      }
+      {
+        val fb = functionBuilder[Boolean]
+        fb.emit(_return(new CodeFloat(Float.NaN).ceq(x)))
+        val f = fb.result()()
+        assert(!f())
+      }
+      {
+        val fb = functionBuilder[Boolean]
+        fb.emit(_return(new CodeFloat(Float.NaN).cne(x)))
+        val f = fb.result()()
+        assert(f())
+      }
+
+      true
+    }.check()
   }
 
 }

@@ -12,4 +12,6 @@ __all__ = ['typecheck',
            'strlike',
            'integral',
            'numeric',
-           'char']
+           'char',
+           'lazy',
+           'enumeration']

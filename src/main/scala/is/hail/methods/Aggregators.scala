@@ -17,12 +17,12 @@ import scala.reflect.ClassTag
 
 object Aggregators {
 
-  def buildVariantAggregations[T](vsm: VariantSampleMatrix[T], ec: EvalContext): Option[(Variant, Annotation, Iterable[T]) => Unit] =
-    buildVariantAggregations(vsm.sparkContext, vsm.value.localValue, ec)
+  def buildVariantAggregations[RPK, RK, T >: Null](vsm: VariantSampleMatrix[RPK, RK, T], ec: EvalContext): Option[(RK, Annotation, Iterable[T]) => Unit] =
+    buildVariantAggregations[RPK, RK, T](vsm.sparkContext, vsm.value.localValue, ec)
 
-  def buildVariantAggregations[T](sc: SparkContext,
+  def buildVariantAggregations[RPK, RK, T >: Null](sc: SparkContext,
     localValue: VSMLocalValue,
-    ec: EvalContext): Option[(Variant, Annotation, Iterable[T]) => Unit] = {
+    ec: EvalContext): Option[(RK, Annotation, Iterable[T]) => Unit] = {
 
     val aggregations = ec.aggregations
     if (aggregations.isEmpty)
@@ -33,7 +33,7 @@ object Aggregators {
     val localAnnotationsBc = sc.broadcast(localValue.sampleAnnotations)
     val localGlobalAnnotations = localValue.globalAnnotation
 
-    Some({ (v: Variant, va: Annotation, gs: Iterable[T]) =>
+    Some({ (v: RK, va: Annotation, gs: Iterable[T]) =>
       val aggs = aggregations.map { case (_, _, agg0) => agg0.copy() }
       localA(0) = localGlobalAnnotations
       localA(1) = v
@@ -64,7 +64,7 @@ object Aggregators {
     })
   }
 
-  def buildSampleAggregations[T](hc: HailContext, value: MatrixValue[T], ec: EvalContext): Option[(Annotation) => Unit] = {
+  def buildSampleAggregations[RPK, RK, T >: Null](hc: HailContext, value: MatrixValue, ec: EvalContext): Option[(Annotation) => Unit] = {
 
     val aggregations = ec.aggregations
 
@@ -86,7 +86,7 @@ object Aggregators {
       baseArray.update(i, j, aggregations(j)._3.copy())
     }
 
-    val result = value.rdd.treeAggregate(baseArray)({ case (arr, (v, (va, gs))) =>
+    val result = value.rdd[RPK, RK, T].treeAggregate(baseArray)({ case (arr, (v, (va, gs))) =>
       localA(0) = localGlobalAnnotations
       localA(4) = v
       localA(5) = va
@@ -123,7 +123,7 @@ object Aggregators {
     })
   }
 
-  def makeSampleFunctions[T](vsm: VariantSampleMatrix[T], aggExpr: String): SampleFunctions[T] = {
+  def makeSampleFunctions[RPK, RK, T >: Null](vsm: VariantSampleMatrix[RPK, RK, T], aggExpr: String): SampleFunctions[RPK, RK, T] = {
     val ec = vsm.sampleEC
 
     val (resultType, aggF) = Parser.parseExpr(aggExpr, ec)
@@ -141,7 +141,7 @@ object Aggregators {
       zVal.update(i, j, aggregations(j)._3.copy())
     }
 
-    val seqOp = (ma: MultiArray2[Aggregator], tup: (Variant, Annotation, Iterable[T])) => {
+    val seqOp = (ma: MultiArray2[Aggregator], tup: (RK, Annotation, Iterable[T])) => {
       val (v, va, gs) = tup
 
       ec.set(0, localGlobalAnnotations)
@@ -196,9 +196,9 @@ object Aggregators {
     SampleFunctions(zVal, seqOp, combOp, resultOp, resultType)
   }
 
-  case class SampleFunctions[T](
+  case class SampleFunctions[RPK, RK, T](
     zero: MultiArray2[Aggregator],
-    seqOp: (MultiArray2[Aggregator], (Variant, Annotation, Iterable[T])) => MultiArray2[Aggregator],
+    seqOp: (MultiArray2[Aggregator], (RK, Annotation, Iterable[T])) => MultiArray2[Aggregator],
     combOp: (MultiArray2[Aggregator], MultiArray2[Aggregator]) => MultiArray2[Aggregator],
     resultOp: (MultiArray2[Aggregator] => Array[Annotation]),
     resultType: Type)
@@ -285,6 +285,48 @@ class FractionAggregator(f: (Any) => Any)
   def copy() = new FractionAggregator(f)
 }
 
+class ExistsAggregator(f: (Any) => Any)
+  extends TypedAggregator[Boolean] {
+
+  var exists: Boolean = false
+
+  def result: Boolean = exists
+
+  def seqOp(x: Any) {
+    exists = exists || {
+      val r = f(x)
+      r != null && r.asInstanceOf[Boolean]
+    }
+  }
+
+  def combOp(agg2: this.type) {
+    exists = exists || agg2.exists
+  }
+
+  def copy() = new ExistsAggregator(f)
+}
+
+class ForallAggregator(f: (Any) => Any)
+  extends TypedAggregator[Boolean] {
+
+  var forall: Boolean = true
+
+  def result: Boolean = forall
+
+  def seqOp(x: Any) {
+    forall = forall && {
+      val r = f(x)
+      r != null || r.asInstanceOf[Boolean]
+    }
+  }
+
+  def combOp(agg2: this.type) {
+    forall = forall && agg2.forall
+  }
+
+  def copy() = new ForallAggregator(f)
+}
+
 class StatAggregator() extends TypedAggregator[Annotation] {
 
   var _state = new StatCounter()
@@ -344,6 +386,21 @@ class HistAggregator(indices: Array[Double])
   def copy() = new HistAggregator(indices)
 }
 
+class CollectSetAggregator extends TypedAggregator[Set[Any]] {
+
+  var _state = new mutable.HashSet[Any]
+
+  def result = _state.toSet
+
+  def seqOp(x: Any) {
+    _state += x
+  }
+
+  def combOp(agg2: this.type) = _state ++= agg2._state
+
+  def copy() = new CollectSetAggregator()
+}
+
 class CollectAggregator extends TypedAggregator[ArrayBuffer[Any]] {
 
   var _state = new ArrayBuffer[Any]
@@ -367,7 +424,7 @@ class InfoScoreAggregator extends TypedAggregator[Annotation] {
 
   def seqOp(x: Any) {
     if (x != null)
-      _state.merge(x.asInstanceOf[Genotype])
+      _state.merge(x.asInstanceOf[IndexedSeq[Double]])
   }
 
   def combOp(agg2: this.type) {
@@ -423,7 +480,7 @@ class ProductAggregator[T](implicit ev: scala.math.Numeric[T]) extends TypedAggr
 
   def seqOp(x: Any) {
     if (x != null)
-       _state *= x.asInstanceOf[T]
+      _state *= x.asInstanceOf[T]
   }
 
   def combOp(agg2: this.type) = _state *= agg2._state

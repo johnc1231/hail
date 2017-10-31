@@ -1,7 +1,8 @@
 from hail.typecheck import *
+from hail.history import *
 
 
-class Struct(object):
+class Struct(HistoryMixin):
     """
     Nested annotation structure.
 
@@ -22,11 +23,17 @@ class Struct(object):
     >>> getattr(bar, '1kg')
     >>> bar['1kg']
 
+    The ``pprint`` module can be used to print nested Structs in a more
+    human-readable fashion:
+
+    >>> from pprint import pprint
+    >>> pprint(bar)
+
     :param dict attributes: struct members.
     """
 
+    @record_init
     def __init__(self, attributes):
-
         self._attrs = attributes
 
     def __getattr__(self, item):
@@ -59,6 +66,7 @@ class Struct(object):
     def __hash__(self):
         return 37 + hash(tuple(sorted(self._attrs.items())))
 
+    @record_method
     @typecheck_method(item=strlike,
                       default=anytype)
     def get(self, item, default=None):

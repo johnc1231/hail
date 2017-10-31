@@ -2,15 +2,15 @@ package is.hail.io.bgen
 
 import is.hail.HailContext
 import is.hail.annotations._
-import is.hail.expr._
-import is.hail.io._
-import is.hail.io.gen.GenReport
+import is.hail.expr.{TArray, TCall, TFloat64, TString, TStruct, TVariant}
+import is.hail.io.vcf.LoadVCF
+import is.hail.io.{HadoopFSDataBinaryReader, IndexBTree}
 import is.hail.utils._
 import is.hail.variant._
 import org.apache.hadoop.io.LongWritable
 import org.apache.spark.rdd.RDD
 
-import scala.collection.mutable
+import scala.reflect.classTag
 import scala.io.Source
 
 case class BgenHeader(compressed: Boolean, nSamples: Int, nVariants: Int,
@@ -21,27 +21,20 @@ case class BgenResult[T <: BgenRecord](file: String, nSamples: Int, nVariants: I
 object BgenLoader {
 
   def load(hc: HailContext, files: Array[String], sampleFile: Option[String] = None,
-    tolerance: Double, nPartitions: Option[Int] = None): VariantDataset = {
+    tolerance: Double, nPartitions: Option[Int] = None): GenericDataset = {
     require(files.nonEmpty)
-    val samples = sampleFile.map(file => BgenLoader.readSampleFile(hc.hadoopConf, file))
+    val sampleIds = sampleFile.map(file => BgenLoader.readSampleFile(hc.hadoopConf, file))
       .getOrElse(BgenLoader.readSamples(hc.hadoopConf, files.head))
 
-    val duplicateIds = samples.duplicates().toArray
-    if (duplicateIds.nonEmpty) {
-      val n = duplicateIds.length
-      warn(s"""found $n duplicate sample ${ plural(n, "ID") }
-               |  Duplicate IDs: @1""".stripMargin, duplicateIds)
-    }
+    LoadVCF.warnDuplicates(sampleIds)
 
-    val nSamples = samples.length
+    val nSamples = sampleIds.length
 
     hc.hadoopConf.setDouble("tolerance", tolerance)
 
     val sc = hc.sc
     val results = files.map { file =>
-      val reportAcc = sc.accumulable[mutable.Map[Int, Int], Int](mutable.Map.empty[Int, Int])
       val bState = readState(sc.hadoopConfiguration, file)
-      GenReport.accumulators ::= (file, reportAcc)
 
       bState.version match {
         case 1 =>
@@ -74,22 +67,23 @@ object BgenLoader {
 
     val signature = TStruct("rsid" -> TString, "varid" -> TString)
 
-    val fastKeys = sc.union(results.map(_.rdd.map(_._2.getKey)))
+    val fastKeys = sc.union(results.map(_.rdd.map(_._2.getKey: Annotation)))
 
+    val gr = GenomeReference.GRCh37
+    
     val rdd = sc.union(results.map(_.rdd.map { case (_, decoder) =>
-      (decoder.getKey, (decoder.getAnnotation, decoder.getValue))
-    })).toOrderedRDD[Locus](fastKeys)
+      (decoder.getKey: Annotation, (decoder.getAnnotation, decoder.getValue))
+    })).toOrderedRDD(fastKeys)(TVariant(gr).orderedKey, classTag[(Annotation, Iterable[Annotation])])
 
-    new VariantSampleMatrix(hc, VSMMetadata(
+    new GenericDataset(hc, VSMMetadata(
       TString,
       saSignature = TStruct.empty,
-      TVariant,
+      TVariant(gr),
       vaSignature = signature,
-      globalSignature = TStruct.empty,
-      wasSplit = true,
-      isLinearScale = true),
+      genotypeSignature = TStruct("GT" -> TCall, "GP" -> TArray(TFloat64)),
+      globalSignature = TStruct.empty),
       VSMLocalValue(globalAnnotation = Annotation.empty,
-        sampleIds = samples,
+        sampleIds = sampleIds,
         sampleAnnotations = Array.fill(nSamples)(Annotation.empty)),
       rdd)
   }

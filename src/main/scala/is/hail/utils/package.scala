@@ -5,17 +5,19 @@ import java.lang.reflect.Method
 import java.net.URI
 import java.util.zip.Inflater
 
+import is.hail.annotations.Annotation
 import is.hail.check.Gen
 import org.apache.commons.io.output.TeeOutputStream
 import org.apache.hadoop.fs.PathIOException
 import org.apache.hadoop.mapred.FileSplit
 import org.apache.hadoop.mapreduce.lib.input.{FileSplit => NewFileSplit}
-import org.apache.spark.{AccumulableParam, Partition}
+import org.apache.log4j.Level
+import org.apache.spark.Partition
 import org.json4s.Extraction.decompose
+import org.json4s.JsonAST.JArray
 import org.json4s.jackson.Serialization
-import org.json4s.{Formats, JValue, NoTypeHints}
-import org.slf4j.event.Level
-import org.slf4j.{Logger, LoggerFactory}
+import org.json4s.reflect.TypeInfo
+import org.json4s.{Extraction, Formats, JValue, NoTypeHints, Serializer}
 
 import scala.collection.generic.CanBuildFrom
 import scala.collection.{GenTraversableOnce, TraversableOnce, mutable}
@@ -30,7 +32,7 @@ package object utils extends Logging
   with ErrorHandling {
 
   def getStderrAndLogOutputStream[T](implicit tct: ClassTag[T]): OutputStream =
-    new TeeOutputStream(new LoggerOutputStream(LoggerFactory.getLogger(tct.runtimeClass), Level.ERROR), System.err)
+    new TeeOutputStream(new LoggerOutputStream(log, Level.ERROR), System.err)
 
   trait Truncatable {
     def truncate: String
@@ -148,11 +150,14 @@ package object utils extends Logging
       null
   }
 
-  def divOption[T](num: T, denom: T)(implicit ev: T => Double): Option[Double] =
-    someIf(denom != 0, ev(num) / denom)
+  def divOption(num: Double, denom: Double): Option[Double] =
+    someIf(denom != 0, num / denom)
 
-  def divNull[T](num: T, denom: T)(implicit ev: T => Double): Any =
-    nullIfNot(denom != 0, ev(num) / denom)
+  def divNull(num: Double, denom: Double): java.lang.Double =
+    if (denom == 0)
+      null
+    else
+      num / denom
 
   val defaultTolerance = 1e-6
 
@@ -193,36 +198,10 @@ package object utils extends Logging
     }
   }
 
-  def getParquetPartNumber(fname: String): Int = {
-    val parquetRegex = ".*/?part-(r-)?(\\d+)-.*\\.parquet.*".r
-
-    fname match {
-      case parquetRegex(_, i) => i.toInt
-      case _ => throw new PathIOException(s"invalid parquet file `$fname'")
-    }
-  }
-
   // ignore size; atomic, like String
   def genDNAString: Gen[String] = Gen.stringOf(genBase)
     .resize(12)
     .filter(s => !s.isEmpty)
-
-  implicit def accumulableMapInt[K]: AccumulableParam[mutable.Map[K, Int], K] = new AccumulableParam[mutable.Map[K, Int], K] {
-    def addAccumulator(r: mutable.Map[K, Int], t: K): mutable.Map[K, Int] = {
-      r.updateValue(t, 0, _ + 1)
-      r
-    }
-
-    def addInPlace(r1: mutable.Map[K, Int], r2: mutable.Map[K, Int]): mutable.Map[K, Int] = {
-      for ((k, v) <- r2)
-        r1.updateValue(k, 0, _ + v)
-      r1
-    }
-
-    def zero(initialValue: mutable.Map[K, Int]): mutable.Map[K, Int] =
-      mutable.Map.empty[K, Int]
-  }
-
 
   def prettyIdentifier(str: String): String = {
     if (str.matches( """\p{javaJavaIdentifierStart}\p{javaJavaIdentifierPart}*"""))
@@ -231,11 +210,19 @@ package object utils extends Logging
       s"`${ StringEscapeUtils.escapeString(str, backticked = true) }`"
   }
 
+  def formatDouble(d: Double, precision: Int): String = d.formatted(s"%.${ precision }f")
+
   def uriPath(uri: String): String = new URI(uri).getPath
 
-  def extendOrderingToNull[T](missingGreatest: Boolean)(implicit ord: Ordering[T]): Ordering[Any] = {
-    new Ordering[Any] {
-      def compare(a: Any, b: Any): Int =
+  def annotationOrdering[T](ord: Ordering[T]): Ordering[Annotation] = {
+    new Ordering[Annotation] {
+      def compare(a: Annotation, b: Annotation): Int = ord.compare(a.asInstanceOf[T], b.asInstanceOf[T])
+    }
+  }
+
+  def extendOrderingToNull[T](missingGreatest: Boolean)(implicit ord: Ordering[T]): Ordering[T] = {
+    new Ordering[T] {
+      def compare(a: T, b: T): Int =
         if (a == null) {
           if (b == null)
             0 // null, null
@@ -248,7 +235,7 @@ package object utils extends Logging
             // _, null
             if (missingGreatest) -1 else 1
           } else
-            ord.compare(a.asInstanceOf[T], b.asInstanceOf[T])
+            ord.compare(a, b)
         }
     }
   }
@@ -274,12 +261,7 @@ package object utils extends Logging
   }
 
 
-  def uninitialized[T]: T = {
-    class A {
-      var x: T = _
-    }
-    (new A).x
-  }
+  def uninitialized[T]: T = null.asInstanceOf[T]
 
   def mapAccumulate[C[_], T, S, U](a: Iterable[T], z: S)(f: (T, S) => (U, S))(implicit uct: ClassTag[U],
     cbf: CanBuildFrom[Nothing, U, C[U]]): C[U] = {
@@ -364,6 +346,15 @@ package object utils extends Logging
     count
   }
 
+  def getIteratorSizeWithMaxN[T](max: Long)(iterator: Iterator[T]): Long = {
+    var count = 0L
+    while (iterator.hasNext && count < max) {
+      count += 1L
+      iterator.next()
+    }
+    count
+  }
+
   def lookupMethod(c: Class[_], method: String): Method = {
     try {
       c.getDeclaredMethod(method)
@@ -416,7 +407,7 @@ package object utils extends Logging
     }
   }
 
-  implicit val jsonFormatsNoTypeHints: Formats = Serialization.formats(NoTypeHints)
+  implicit val jsonFormatsNoTypeHints: Formats = Serialization.formats(NoTypeHints) + GenericIndexedSeqSerializer
 
   def caseClassJSONReaderWriter[T](implicit mf: scala.reflect.Manifest[T]): JSONReaderWriter[T] = new JSONReaderWriter[T] {
     def toJSON(x: T): JValue = decompose(x)
@@ -482,5 +473,69 @@ package object utils extends Logging
       reader(resourceStream)
     finally
       resourceStream.close()
+  }
+
+  def roundWithConstantSum(a: Array[Double]): Array[Int] = {
+    val withFloors = a.zipWithIndex.map { case (d, i) => (i, d, math.floor(d)) }
+    val totalFractional = (withFloors.map { case (i, orig, floor) => orig - floor }.sum + 0.5).toInt
+    withFloors
+      .sortBy { case (_, orig, floor) => floor - orig }
+      .zipWithIndex
+      .map { case ((i, orig, floor), iSort) =>
+        if (iSort < totalFractional)
+          (i, math.ceil(orig))
+        else
+          (i, math.floor(orig))
+      }.sortBy(_._1).map(_._2.toInt)
+  }
+
+  def digitsNeeded(i: Int): Int = {
+    assert(i >= 0)
+    if (i < 10)
+      1
+    else
+      1 + digitsNeeded(i / 10)
+  }
+
+  def mangle(strs: Array[String], formatter: Int => String = "_%d".format(_)): (Array[String], Array[(String, String)]) = {
+    val b = new ArrayBuilder[String]
+
+    val uniques = new mutable.HashSet[String]()
+    val mapping = new ArrayBuilder[(String, String)]
+
+    strs.foreach { s =>
+      var smod = s
+      var i = 0
+      while (uniques.contains(smod)) {
+        i += 1
+        smod = s + formatter(i)
+      }
+
+      if (smod != s)
+        mapping += s -> smod
+      uniques += smod
+      b += smod
+    }
+
+    b.result() -> mapping.result()
+  }
+}
+
+// FIXME: probably resolved in 3.6 https://github.com/json4s/json4s/commit/fc96a92e1aa3e9e3f97e2e91f94907fdfff6010d
+object GenericIndexedSeqSerializer extends Serializer[IndexedSeq[_]] {
+  val IndexedSeqClass = classOf[IndexedSeq[_]]
+
+  override def serialize(implicit format: Formats) = {
+    case seq: IndexedSeq[_] => JArray(seq.map(Extraction.decompose).toList)
+  }
+
+  override def deserialize(implicit format: Formats) = {
+    case (TypeInfo(IndexedSeqClass, parameterizedType), JArray(xs)) =>
+      val typeInfo = TypeInfo(parameterizedType
+        .map(_.getActualTypeArguments()(0))
+        .getOrElse(throw new RuntimeException("No type parameter info for type IndexedSeq"))
+        .asInstanceOf[Class[_]],
+        None)
+      xs.map(x => Extraction.extract(x, typeInfo)).toArray[Any]
   }
 }

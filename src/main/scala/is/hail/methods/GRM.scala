@@ -1,5 +1,6 @@
 package is.hail.methods
 
+import is.hail.distributedmatrix.BlockMatrix.ops._
 import is.hail.stats.ToHWENormalizedIndexedRowMatrix
 import is.hail.utils._
 import is.hail.variant.VariantDataset
@@ -7,17 +8,16 @@ import is.hail.variant.VariantDataset
 object GRM {
   def apply(vds: VariantDataset): KinshipMatrix = {
 
-    val (_, mat) = ToHWENormalizedIndexedRowMatrix(vds)
+    val (_, irm) = ToHWENormalizedIndexedRowMatrix(vds)
 
     val nSamples = vds.nSamples
-    assert(nSamples == mat.numCols())
-    val nVariants = mat.numRows() // mat cached
+    assert(nSamples == irm.numCols())
+    val nVariants = irm.numRows() // mat cached
 
-    val bmat = mat.toBlockMatrixDense().cache()
-    val grm = bmat.transpose.multiply(bmat)
+    val bm = irm.toHailBlockMatrix().cache()
+    val grm = bm.t * bm
 
-    assert(grm.numCols == nSamples
-      && grm.numRows == nSamples)
+    assert(grm.cols == nSamples && grm.rows == nSamples)
 
     KinshipMatrix(vds.hc, vds.sSignature, grm.toIndexedRowMatrix, vds.sampleIds.toArray, vds.countVariants())
   }

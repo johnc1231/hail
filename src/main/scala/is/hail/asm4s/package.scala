@@ -136,8 +136,8 @@ package object asm4s {
     val name = "B"
     val loadOp = ILOAD
     val storeOp = ISTORE
-    val aloadOp = IALOAD
-    val astoreOp = IASTORE
+    val aloadOp = BALOAD
+    val astoreOp = BASTORE
     val returnOp = IRETURN
     val newarrayOp = NEWARRAY
 
@@ -267,6 +267,12 @@ package object asm4s {
 
   implicit def toCodeInt(c: Code[Int]): CodeInt = new CodeInt(c)
 
+  implicit def byteToCodeInt(c: Code[Byte]): Code[Int] = new Code[Int] {
+    def emit(il: Growable[AbstractInsnNode]) = c.emit(il)
+  }
+
+  implicit def byteToCodeInt2(c: Code[Byte]): CodeInt = toCodeInt(byteToCodeInt(c))
+
   implicit def toCodeLong(c: Code[Long]): CodeLong = new CodeLong(c)
 
   implicit def toCodeFloat(c: Code[Float]): CodeFloat = new CodeFloat(c)
@@ -305,6 +311,8 @@ package object asm4s {
 
   implicit def toCodeObject[T >: Null](f: LocalRef[T])(implicit tti: TypeInfo[T], tct: ClassTag[T]): CodeObject[T] = new CodeObject[T](f.load())
 
+  implicit def toLocalRefInt(f: LocalRef[Int]): LocalRefInt = new LocalRefInt(f)
+
   implicit def const(s: String): Code[String] = Code(new LdcInsnNode(s))
 
   implicit def const(b: Boolean): Code[Boolean] = Code(new LdcInsnNode(if (b) 1 else 0))
@@ -313,5 +321,9 @@ package object asm4s {
 
   implicit def const(l: Long): Code[Long] = Code(new LdcInsnNode(l))
 
+  implicit def const(f: Float): Code[Float] = Code(new LdcInsnNode(f))
+
   implicit def const(d: Double): Code[Double] = Code(new LdcInsnNode(d))
+
+  implicit def const(b: Byte): Code[Byte] = Code(new LdcInsnNode(b))
 }

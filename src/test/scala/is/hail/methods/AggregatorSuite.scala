@@ -1,10 +1,10 @@
 package is.hail.methods
 
-import is.hail.check.{Gen, Parameters, Prop}
+import is.hail.check.{Gen, Prop}
 import is.hail.expr._
 import is.hail.keytable.KeyTable
 import is.hail.utils._
-import is.hail.variant.{VSMSubgen, VariantDataset, VariantSampleMatrix}
+import is.hail.variant.{Genotype, VSMSubgen, VariantDataset, VariantSampleMatrix}
 import is.hail.{SparkSuite, TestUtils}
 import org.apache.commons.math3.random.RandomDataGenerator
 import org.apache.spark.sql.Row
@@ -18,8 +18,9 @@ class AggregatorSuite extends SparkSuite {
       .splitMulti()
       .variantQC()
       .annotateVariantsExpr(
-        """va.test.callrate = gs.fraction(g => g.isCalled()), va.test.AC = gs.map(g => g.nNonRefAlleles()).sum(),
-          |va.test.AF = gs.map(g => g.nNonRefAlleles()).stats().sum.toDouble() / gs.filter(g => g.isCalled()).count() / 2.0,
+        """va.test.callrate = gs.fraction(g => g.isCalled()),
+          |va.test.AC = gs.map(g => g.nNonRefAlleles()).sum(),
+          |va.test.AF = gs.map(g => g.nNonRefAlleles()).stats().sum.toFloat64() / gs.filter(g => g.isCalled()).count() / 2.0,
           |va.test.gqstats = gs.map(g => g.gq).stats(), va.test.gqhetstats = gs.filter(g => g.isHet()).map(g => g.gq).stats(),
           |va.lowGqGts = gs.filter(g => g.gq < 60).collect()""".stripMargin)
 
@@ -50,8 +51,8 @@ class AggregatorSuite extends SparkSuite {
         })
 
         val gqSC = gs.aggregate(new StatCounter())({ case (s, g) =>
-          if (g.isHet)
-            g.gq.foreach(x => s.merge(x))
+          if (Genotype.isHet(g))
+            Genotype.gq(g).foreach(x => s.merge(x))
           s
         }, { case (s1, s2) => s1.merge(s2) })
 
@@ -62,7 +63,7 @@ class AggregatorSuite extends SparkSuite {
           case (a, b) => D_==(a.asInstanceOf[Double], b.asInstanceOf[Double])
         })
 
-        val lowGqGtsData = gs.filter(_.gq.exists(_ < 60))
+        val lowGqGtsData = gs.filter(Genotype.gq(_).exists(_ < 60))
         assert(Option(lowGqGts(va)).map(_.asInstanceOf[IndexedSeq[_]]).contains(lowGqGtsData.toIndexedSeq))
 
       }
@@ -70,10 +71,22 @@ class AggregatorSuite extends SparkSuite {
 
   @Test def testColumns() {
     val vds = hc.importVCF("src/test/resources/sample2.vcf")
-      .splitMulti()
       .sampleQC()
-      .annotateSamplesExpr("sa.test.callrate = gs.fraction(g => g.isCalled()), sa.test.gqstats = " +
-        "gs.map(g => g.gq).stats(), sa.test.gqhetstats = gs.filter(g => g.isHet()).map(g => g.gq).stats()")
+      .annotateSamplesExpr(
+        """sa.test.callrate = gs.fraction(g => g.isCalled()),
+          |sa.test.nCalled = gs.filter(g => g.isCalled()).count(),
+          |sa.test.nNotCalled = gs.filter(g => !g.isCalled()).count(),
+          |sa.test.gqstats = gs.map(g => g.gq).stats(),
+          |sa.test.gqhetstats = gs.filter(g => g.isHet()).map(g => g.gq).stats(),
+          |sa.test.nHet = gs.filter(g => g.isHet()).count(),
+          |sa.test.nHomRef = gs.filter(g => g.isHomRef()).count(),
+          |sa.test.nHomVar = gs.filter(g => g.isHomVar()).count(),
+          |sa.test.nSNP = gs.map(g => [g.gtj, g.gtk].map(x => if (x > 0 && v.altAlleles[x - 1].isSNP()) 1 else 0).sum()).sum(),
+          |sa.test.nInsertion = gs.map(g => [g.gtj, g.gtk].map(x => if (x > 0 && v.altAlleles[x - 1].isInsertion()) 1 else 0).sum()).sum(),
+          |sa.test.nDeletion = gs.map(g => [g.gtj, g.gtk].map(x => if (x > 0 && v.altAlleles[x - 1].isDeletion()) 1 else 0).sum()).sum(),
+          |sa.test.nTi = gs.map(g => [g.gtj, g.gtk].map(x => if (x > 0 && v.altAlleles[x - 1].isTransition()) 1 else 0).sum()).sum(),
+          |sa.test.nTv = gs.map(g => [g.gtj, g.gtk].map(x => if (x > 0 && v.altAlleles[x - 1].isTransversion()) 1 else 0).sum()).sum(),
+          |sa.test.nStar = gs.map(g => [g.gtj, g.gtk].map(x => if (x > 0 && v.altAlleles[x - 1].isStar()) 1 else 0).sum()).sum()""".stripMargin)
 
     val qCallRate = vds.querySA("sa.test.callrate")._2
     val qCallRateQC = vds.querySA("sa.qc.callRate")._2
@@ -83,10 +96,13 @@ class AggregatorSuite extends SparkSuite {
     val gqStatsStDevQC = vds.querySA("sa.qc.gqStDev")._2
     val gqStatsHetMean = vds.querySA("sa.test.gqhetstats.mean")._2
     val gqStatsHetStDev = vds.querySA("sa.test.gqhetstats.stdev")._2
+    val nHomRef = vds.querySA("sa.test.nHomRef")._2
+    val nHet = vds.querySA("sa.test.nHet")._2
+    val nHomVar = vds.querySA("sa.test.nHomVar")._2
 
     val gqHetMap = vds.aggregateBySample(new StatCounter())({ case (s, g) =>
-      if (g.isHet)
-        g.gq.foreach(x => s.merge(x))
+      if (Genotype.isHet(g))
+        Genotype.gq(g).foreach(x => s.merge(x))
       s
     }, { case (s1, s2) => s1.merge(s2) })
       .collect().toMap
@@ -108,6 +124,19 @@ class AggregatorSuite extends SparkSuite {
             case (a, b) => D_==(a.asInstanceOf[Double], b.asInstanceOf[Double])
           })
       }
+
+    assert(vds.samplesKT().forall("sa.qc.nCalled == sa.test.nCalled"))
+    assert(vds.samplesKT().forall("sa.qc.nNotCalled == sa.test.nNotCalled"))
+    assert(vds.samplesKT().forall("sa.qc.callRate == sa.test.callrate"))
+    assert(vds.samplesKT().forall("sa.qc.nHet == sa.test.nHet"))
+    assert(vds.samplesKT().forall("sa.qc.nHomVar == sa.test.nHomVar"))
+    assert(vds.samplesKT().forall("sa.qc.nHomRef == sa.test.nHomRef"))
+    assert(vds.samplesKT().forall("sa.qc.nSNP == sa.test.nSNP"))
+    assert(vds.samplesKT().forall("sa.qc.nInsertion == sa.test.nInsertion"))
+    assert(vds.samplesKT().forall("sa.qc.nDeletion == sa.test.nDeletion"))
+    assert(vds.samplesKT().forall("sa.qc.nTransition == sa.test.nTi"))
+    assert(vds.samplesKT().forall("sa.qc.nTransversion == sa.test.nTv"))
+    assert(vds.samplesKT().forall("sa.qc.nStar == sa.test.nStar"))
   }
 
   @Test def testSum() {
@@ -128,19 +157,19 @@ class AggregatorSuite extends SparkSuite {
 
   @Test def testMaxMin() {
     val rdd = sc.parallelize(Seq(
-      Row("a",  0, null,    1,   -1, null, null,    1, null,  0l,  0f,  0d),
-      Row("a", -1,   -1, null,   -2, null,    1, null, null, -1l, -1f, -1d),
-      Row("a",  1,   -2,    2, null,   -1, null, null, null,  1l,  1f,  1d)), numSlices = 2)
+      Row("a", 0, null, 1, -1, null, null, 1, null, 0l, 0f, 0d),
+      Row("a", -1, -1, null, -2, null, 1, null, null, -1l, -1f, -1d),
+      Row("a", 1, -2, 2, null, -1, null, null, null, 1l, 1f, 1d)), numSlices = 2)
 
-    val signature = TStruct((("group" -> TString) +: (0 until 8).map(i => s"s$i" -> TInt))
-      ++ IndexedSeq("s8" -> TLong, "s9" -> TFloat, "s10" -> TDouble): _*)
+    val signature = TStruct((("group" -> TString) +: (0 until 8).map(i => s"s$i" -> TInt32))
+      ++ IndexedSeq("s8" -> TInt64, "s9" -> TFloat32, "s10" -> TFloat64): _*)
 
-    val ktMax = new KeyTable(hc, rdd, signature)
+    val ktMax = KeyTable(hc, rdd, signature)
       .aggregate("group = group", (0 until 11).map(i => s"s$i = s$i.max()").mkString(","))
 
     assert(ktMax.collect() == IndexedSeq(Row("a", 1, -1, 2, -1, -1, 1, 1, null, 1l, 1f, 1d)))
 
-    val ktMin = new KeyTable(hc, rdd, signature)
+    val ktMin = KeyTable(hc, rdd, signature)
       .aggregate("group = group", (0 until 11).map(i => s"s$i = s$i.min()").mkString(","))
 
     assert(ktMin.collect() == IndexedSeq(Row("a", -1, -2, 1, -2, -1, 1, 1, null, -1l, -1f, -1d)))
@@ -148,14 +177,14 @@ class AggregatorSuite extends SparkSuite {
 
   @Test def testProduct() {
     val rdd = sc.parallelize(Seq(
-      Row("a",  0, null,    1, 1, null, null, 10, null,  0l,  2f,  0d),
-      Row("a", -1,   -1, null, 2, null,    1,  4, null, -1l, -1f, -1d),
-      Row("a",  1,   -2,    2, 3,   -1,   -3,  2, null,  1l,  2f,  1d)), numSlices = 2)
+      Row("a", 0, null, 1, 1, null, null, 10, null, 0l, 2f, 0d),
+      Row("a", -1, -1, null, 2, null, 1, 4, null, -1l, -1f, -1d),
+      Row("a", 1, -2, 2, 3, -1, -3, 2, null, 1l, 2f, 1d)), numSlices = 2)
 
-    val signature = TStruct((("group" -> TString) +: (0 until 8).map(i => s"s$i" -> TInt))
-      ++ IndexedSeq("s8" -> TLong, "s9" -> TFloat, "s10" -> TDouble): _*)
+    val signature = TStruct((("group" -> TString) +: (0 until 8).map(i => s"s$i" -> TInt32))
+      ++ IndexedSeq("s8" -> TInt64, "s9" -> TFloat32, "s10" -> TFloat64): _*)
 
-    val ktProduct = new KeyTable(hc, rdd, signature)
+    val ktProduct = KeyTable(hc, rdd, signature)
       .aggregate("group = group", ((0 until 11).map(i => s"s$i = s$i.product()") :+ ("empty = s10.filter(x => false).product()")).mkString(","))
 
     assert(ktProduct.collect() == IndexedSeq(Row("a", 0l, 2l, 2l, 6l, -1l, -3l, 80l, 1l, 0l, -4d, 0d, 1d)))
@@ -171,7 +200,7 @@ class AggregatorSuite extends SparkSuite {
 
       val frequencies = r.getAs[IndexedSeq[Long]](1)
 
-      val definedGq = gs.flatMap(_.gq)
+      val definedGq = gs.flatMap(Genotype.gq)
 
       assert(frequencies(0) == definedGq.count(gq => gq < 5))
       assert(frequencies(1) == definedGq.count(gq => gq >= 5 && gq < 10))
@@ -184,7 +213,7 @@ class AggregatorSuite extends SparkSuite {
       val nLess = r.getAs[Long](2)
       val nGreater = r.getAs[Long](3)
 
-      val definedGq = gs.flatMap(_.gq)
+      val definedGq = gs.flatMap(Genotype.gq)
 
       assert(nLess == definedGq.count(_ < 22))
       assert(nGreater == definedGq.count(_ > 80))
@@ -212,24 +241,18 @@ class AggregatorSuite extends SparkSuite {
 
     val dummy = tmpDir.createTempFile("out")
     TestUtils.interceptFatal("unrealizable type.*Aggregable\\[Genotype\\]")(
-      vds.exportVariants(dummy, "gs"))
-    TestUtils.interceptFatal("unrealizable type.*Aggregable\\[Int\\]")(
-      vds.exportVariants(dummy, "gs.map(g => 5)"))
-    TestUtils.interceptFatal("unrealizable type.*Aggregable\\[Genotype\\]")(
-      vds.exportVariants(dummy, "gs.filter(x => false)"))
-    TestUtils.interceptFatal("unrealizable type.*Aggregable\\[Genotype\\]")(
       vds.annotateVariantsExpr("va = gs"))
-    TestUtils.interceptFatal("unrealizable type.*Aggregable\\[Int\\]")(
+    TestUtils.interceptFatal("unrealizable type.*Aggregable\\[Int32\\]")(
       vds.annotateVariantsExpr("va = gs.map(g => 5)"))
     TestUtils.interceptFatal("unrealizable type.*Aggregable\\[Genotype\\]")(
       vds.annotateVariantsExpr("va = gs.filter(g => true)"))
-    TestUtils.interceptFatal("unrealizable type.*Aggregable\\[Variant\\]")(
+    TestUtils.interceptFatal("unrealizable type.*Aggregable\\[Variant\\(GRCh37\\)\\]")(
       vds.queryVariants("variants")
     )
     TestUtils.interceptFatal("unrealizable type.*Aggregable\\[String\\]")(
       vds.queryVariants("variants.map(v => v.contig)")
     )
-    TestUtils.interceptFatal("unrealizable type.*Aggregable\\[Variant\\]")(
+    TestUtils.interceptFatal("unrealizable type.*Aggregable\\[Variant\\(GRCh37\\)\\]")(
       vds.queryVariants("variants.filter(v => false)")
     )
     TestUtils.interceptFatal("unrealizable type.*Aggregable\\[String\\]")(
@@ -287,22 +310,31 @@ class AggregatorSuite extends SparkSuite {
   }
 
   @Test def testTransformations() {
-    Prop.forAll(VariantSampleMatrix.gen(hc, VSMSubgen.random.copy(sampleIdGen = Gen.const(Array("a", "b"))))) { vds =>
-      assert(vds.querySamples("samples.map(id => if (id == \"b\") (NA : Sample) else id).map(x => 1).sum()")._1 == 2)
-      assert(vds.querySamples("samples.filter(id => true).map(id => 1).sum()")._1 == 2)
-      assert(vds.querySamples("samples.filter(id => false).map(id => 1).sum()")._1 == 0)
-      assert(vds.querySamples("samples.flatMap(g => [1]).sum()")._1 == 2)
-      assert(vds.querySamples("samples.flatMap(g => [0][:0]).sum()")._1 == 0)
-      assert(vds.querySamples("samples.flatMap(g => [1,2]).sum()")._1 == 6)
-      assert(vds.querySamples("samples.flatMap(g => [1,2]).filter(x => x % 2 == 0).sum()")._1 == 4)
-      assert(vds.querySamples("samples.flatMap(g => [1,2,2].toSet()).filter(x => x % 2 == 0).sum()")._1 == 4)
+    val p = Prop.forAll(
+      for {
+        vds <- VariantSampleMatrix.gen(hc, VSMSubgen.random
+          .copy(sGen = _ => Gen.oneOf("a", "b")))
+          .filter(vds => vds.nSamples > 0);
+        s <- Gen.choose(0, vds.nSamples - 1)
+      } yield {
+        val s1 = vds.sampleIds(0)
+        assert(vds.querySamples(s"""samples.map(id => if (id == "$s1") (NA : String) else id).map(x => 1).sum()""")._1 == vds.nSamples)
+        assert(vds.querySamples("samples.filter(id => true).map(id => 1).sum()")._1 == vds.nSamples)
+        assert(vds.querySamples("samples.filter(id => false).map(id => 1).sum()")._1 == 0)
+        assert(vds.querySamples("samples.flatMap(g => [1]).sum()")._1 == vds.nSamples)
+        assert(vds.querySamples("samples.flatMap(g => [0][:0]).sum()")._1 == 0)
+        assert(vds.querySamples("samples.flatMap(g => [1,2]).sum()")._1 == 3 * vds.nSamples)
+        assert(vds.querySamples("samples.flatMap(g => [1,2]).filter(x => x % 2 == 0).sum()")._1 == 2 * vds.nSamples)
+        assert(vds.querySamples("samples.flatMap(g => [1,2,2].toSet()).filter(x => x % 2 == 0).sum()")._1 == 2 * vds.nSamples)
 
-      vds.annotateVariantsExpr("""va = gs.filter(g => s == "a").map(g => 1).sum()""")
-        .rdd
-        .collect()
-        .foreach { case (_, (va, _)) => assert(va == 1) }
-      true
-    }.check()
+        vds.annotateVariantsExpr(s"""va = gs.filter(g => s == "$s1").map(g => 1).sum()""")
+          .rdd
+          .collect()
+          .foreach { case (_, (va, _)) => assert(va == 1) }
+        true
+      })
+
+    p.check()
   }
 
   @Test def testQueryGenotypes() {
@@ -313,7 +345,7 @@ class AggregatorSuite extends SparkSuite {
         countResult.exists(x => D_==(x, queryResult.asInstanceOf[Double]))
       val filterCountResult = Some(vds.expand().count()).flatMap { r =>
         if (r == 0) None else Some(vds.expand().filter { case (v, _, g) =>
-          (v.start % 2 == 1) && g.isCalled
+          (v.start % 2 == 1) && g != null && Genotype.isCalled(g)
         }.count().toDouble / r)
       }
       val queryResult2 = vds.queryGenotypes("gs.fraction(g => (v.start % 2 == 1) && g.isCalled)")._1
@@ -323,11 +355,11 @@ class AggregatorSuite extends SparkSuite {
     }.check()
   }
 
-  private def isLensedPrefix[T,K](lens: T => K)(prefix: Seq[T], full: Seq[T]): Boolean = {
+  private def isLensedPrefix[T, K](lens: T => K)(prefix: Seq[T], full: Seq[T]): Boolean = {
     prefix.zip(full).forall { case (x, y) => lens(x) == lens(y) }
   }
 
-  private def prefixModuloDisordering[T,K](sortBy: T => K)(prefix: Seq[T], full: Seq[T]): Boolean = {
+  private def prefixModuloDisordering[T, K](sortBy: T => K)(prefix: Seq[T], full: Seq[T]): Boolean = {
     def equivClasses(ts: Seq[T]): Map[K, Set[T]] =
       ts.groupBy(sortBy).mapValues(_.toSet)
 
@@ -353,7 +385,7 @@ class AggregatorSuite extends SparkSuite {
           if (lastKeySubset) {
             true
           } else {
-            println(s"The values at the last key in the prefix, $lastKey, were not a subset of those in the full list: ${prefixEquivClasses(lastKey)} ${fullEquivClasses(lastKey)}")
+            println(s"The values at the last key in the prefix, $lastKey, were not a subset of those in the full list: ${ prefixEquivClasses(lastKey) } ${ fullEquivClasses(lastKey) }")
             false
           }
         } else {
@@ -383,7 +415,7 @@ class AggregatorSuite extends SparkSuite {
       } else {
         true
       }
-    } (Parameters(rng, 1000, 100))
+    }.check()
   }
 
   @Test def takeByAndSortByAgreeUsingLatentEnvironment() {
@@ -402,7 +434,7 @@ class AggregatorSuite extends SparkSuite {
       } else {
         true
       }
-    } (Parameters(rng, 1000, 100))
+    }.check()
   }
 
   private def runAggregatorExpression(expr: String, aggregableName: String, aggregableElementType: Type, aggregableValue: TraversableOnce[_]): Any = {
@@ -436,19 +468,29 @@ class AggregatorSuite extends SparkSuite {
       case (x, y) => x == y
     }
 
+  @Test def testExistsForAll() {
+    val gs = Array(7, 6, 3, na, 1, 2, na, 4, 5, -1)
+
+    assert(runAggregatorExpression("gs.exists(x => x < 0)", "gs", TInt32, gs) == true)
+    assert(runAggregatorExpression("gs.exists(x => x < -2)", "gs", TInt32, gs) == false)
+
+    assert(runAggregatorExpression("gs.forall(x => isMissing(x) || x.abs() < 10)", "gs", TInt32, gs) == true)
+    assert(runAggregatorExpression("gs.forall(x => x > -2)", "gs", TInt32, gs) == false) // because missing
+  }
+
   @Test def takeByNAIsAlwaysLast() {
     val inf = Double.PositiveInfinity
     val nan = Double.NaN
 
     val xs = Array(inf, -1.0, 1.0, 0.0, -inf, na, nan)
 
-    val ascending = runAggregatorExpression("xs.takeBy(x => x, 7)", "xs", TDouble, xs)
+    val ascending = runAggregatorExpression("xs.takeBy(x => x, 7)", "xs", TFloat64, xs)
       .asInstanceOf[IndexedSeq[java.lang.Double]]
 
     assert(doubleSeqEq(ascending, IndexedSeq(-inf, -1.0, 0.0, 1.0, inf, nan, na)),
       s"expected ascending sequence of `java.lang.Double`s, but got: $ascending")
 
-    val descending = runAggregatorExpression("xs.takeBy(x => -x, 7)", "xs", TDouble, xs)
+    val descending = runAggregatorExpression("xs.takeBy(x => -x, 7)", "xs", TFloat64, xs)
       .asInstanceOf[IndexedSeq[java.lang.Double]]
 
     assert(doubleSeqEq(descending, IndexedSeq(inf, 1.0, 0.0, -1.0, -inf, nan, na)),
@@ -459,27 +501,34 @@ class AggregatorSuite extends SparkSuite {
     val gs = Array(7, 6, 3, na, 1, 2, na, 4, 5, -1)
 
     {
-      val result = runAggregatorExpression("gs.takeBy(x => x, 5)", "gs", TInt, gs)
+      val result = runAggregatorExpression("gs.takeBy(x => x, 5)", "gs", TInt32, gs)
         .asInstanceOf[IndexedSeq[java.lang.Integer]]
       assert(result == IndexedSeq(-1, 1, 2, 3, 4))
     }
 
     {
-      val result = runAggregatorExpression("gs.takeBy(x => -x, 5)", "gs", TInt, gs)
+      val result = runAggregatorExpression("gs.takeBy(x => -x, 5)", "gs", TInt32, gs)
         .asInstanceOf[IndexedSeq[java.lang.Integer]]
       assert(result == IndexedSeq(7, 6, 5, 4, 3))
     }
 
     {
-      val result = runAggregatorExpression("gs.takeBy(x => x, 10)", "gs", TInt, gs)
+      val result = runAggregatorExpression("gs.takeBy(x => x, 10)", "gs", TInt32, gs)
         .asInstanceOf[IndexedSeq[java.lang.Integer]]
       assert(result == IndexedSeq(-1, 1, 2, 3, 4, 5, 6, 7, na, na))
     }
   }
 
   @Test def takeByMoreThanExist() {
-    val result = runAggregatorExpression("xs.takeBy(x => x, 10)", "xs", TInt, Array(0,1,2))
+    val result = runAggregatorExpression("xs.takeBy(x => x, 10)", "xs", TInt32, Array(0, 1, 2))
       .asInstanceOf[IndexedSeq[java.lang.Integer]]
-    assert(result == IndexedSeq(0,1,2))
+    assert(result == IndexedSeq(0, 1, 2))
+  }
+
+  @Test def testCollectAsSet() {
+    val kt = KeyTable.range(hc, 100, Some(10))
+
+    assert(kt.query(Array("index.collectAsSet()"))(0)._1 == (0 until 100).toSet)
+    assert(kt.union(kt, kt).query(Array("index.collectAsSet()"))(0)._1 == (0 until 100).toSet)
   }
 }

@@ -49,7 +49,13 @@ object DocumentationEntry {
     val isMethod = tt.isInstanceOf[MethodType]
     val isField = tt.isInstanceOf[FieldType]
 
-    val argTypes = (if (isMethod || isField) tt.xs.tail else tt.xs).map { t => t.toString.replaceAll("\\?", "").replaceAll("\\(", "").replaceAll("\\)", "") }.toArray
+    val argTypes = (if (isMethod || isField) tt.xs.tail else tt.xs).map { t =>
+      t match {
+        case TVariant(_) | TLocus(_) | TInterval(_) => t.toString.replaceAll("\\?", "")
+        case _ => t.toString.replaceAll("\\?", "").replaceAll("\\(", "").replaceAll("\\)", "")
+      }
+    }.toArray
+
     val nArgs = argTypes.length
     val argNames = if (md.args.nonEmpty) md.args.map(_._1).toArray else ('a' to 'z').take(nArgs).map(_.toString).toArray
     val argDescs = if (md.args.nonEmpty) md.args.map(_._2).toArray else Array.fill[String](nArgs)(null)
@@ -89,11 +95,11 @@ case class DocumentationEntry(name: String, category: String, objType: Option[Ty
   val objCategory = {
     objType match {
       case Some(ot) => ot match {
-        case x: TAggregable => Some("Aggregable")
-        case x: TAggregableVariable => Some("Aggregable")
-        case x: TArray => Some("Array")
-        case x: TSet => Some("Set")
-        case x: TDict => Some("Dict")
+        case TAggregable(_) => Some("Aggregable")
+        case TAggregableVariable(_, _) => Some("Aggregable")
+        case TArray(_) => Some("Array")
+        case TSet(_) => Some("Set")
+        case TDict(_, _) => Some("Dict")
         case _ => Some(ot.toString.replaceAll("\\?", ""))
       }
       case None => None
@@ -173,7 +179,7 @@ case class DocumentationEntry(name: String, category: String, objType: Option[Ty
     retType match {
       case rt: TStruct =>
         if (rt.fields.nonEmpty) {
-          val fields = rt.fields.flatMap(fd => emitField(sb, fd, None)).map(s => "\t" + s)
+          val fields = rt.fields.flatMap(fd => emitField(sb, fd, None)).map(s => "\t" + s.replaceAll("\\?", ""))
           val output = (Array(".. container:: annotation\n") ++ fields).map(s => "\t" + s).mkString("\n")
 
           sb.append(output)
@@ -276,7 +282,7 @@ object FunctionDocumentation {
       Array(Argument("s", "Struct", "Struct to drop fields from."),
         Argument("identifiers", "String", "Field names to drop from ``s``. Multiple arguments allowed.")),
       """
-      Return a new ``Struct`` with the a subset of fields not matching ``identifiers``.
+      Return a new ``Struct`` with the subset of fields not matching ``identifiers``.
 
       .. code-block:: text
           :emphasize-lines: 2
@@ -295,6 +301,32 @@ object FunctionDocumentation {
           let s1 = {gene: "ACBD", function: "LOF"} and s2 = {a: 20, b: "hello"} in merge(s1, s2)
           result: {gene: "ACBD", function: "LOF", a: 20, b: "hello"}
       """),
+    DocumentationEntry("ungroup", "function", None, TStruct(),
+      Array(Argument("s", "Struct", "Struct to ungroup fields from."),
+        Argument("identifier", "String", "Field name to ungroup from ``s``. The field type must be a Struct."),
+        Argument("mangle", "Boolean", "Rename ungrouped field names as ``identifier.child``.")),
+      """
+      Return a new ``Struct`` where the subfields of the field given by ``identifier`` are lifted as fields in ``s``.
+
+      .. code-block:: text
+          :emphasize-lines: 2
+
+          let s = {gene: "ACBD", info: {A: 5, B: 3}, function: "LOF"} in ungroup(s, info, true)
+          result: {gene: "ACBD", function: "LOF", info.A: 5, info.B: 3}
+      """, varArgs = false),
+    DocumentationEntry("group", "function", None, TStruct(),
+      Array(Argument("s", "Struct", "Struct to group fields from."),
+        Argument("dest", "String", "Location to place new struct field in ``s``."),
+        Argument("identifiers", "String", "Field names to group from ``s``. Multiple arguments allowed.")),
+      """
+      Return a new ``Struct`` where the fields given by ``identifiers`` are inserted into a new field in ``s`` with name ``dest`` and type ``Struct``.
+
+      .. code-block:: text
+          :emphasize-lines: 2
+
+          let s = {gene: "ACBD", function: "LOF", nhet: 6} in group(s, grouped_field, gene, function)
+          result: {nhet: 6, grouped_field: {gene: "ACBD", function: "LOF"}}
+      """, varArgs = true),
     DocumentationEntry("index", "function", None, TDict(TString, TStruct()),
       Array(Argument("structs", "Array[Struct]"),
         Argument("identifier", "String")),
@@ -310,22 +342,6 @@ object FunctionDocumentation {
               d = index(a, genename) in global.gene_dict["gene1"]
 
           result: {PLI: 0.998, hits_in_exac: 1}
-      """),
-    DocumentationEntry("str", "function", None, TString,
-      Array(Argument("x", "T")),
-      """
-      Returns the string representation of a data type.
-
-      .. code-block:: text
-          :emphasize-lines: 2
-
-          let v = Variant("1", 278653, "A", "T") in str(v)
-          result: "1:278653:A:T"
-      """),
-    DocumentationEntry("json", "function", None, TString,
-      Array(Argument("x", "T")),
-      """
-      Returns the JSON representation of a data type.
       """)
   )
 

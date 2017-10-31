@@ -1,8 +1,11 @@
 from hail.java import *
 from hail.representation.variant import Locus
 from hail.typecheck import *
+from hail.history import *
 
-class Interval(object):
+interval_type = lazy()
+
+class Interval(HistoryMixin):
     """
     A genomic interval marked by start and end loci.
 
@@ -18,6 +21,7 @@ class Interval(object):
     """
 
     @handle_py4j
+    @record_init
     def __init__(self, start, end):
         if not (isinstance(start, Locus) and isinstance(end, Locus)):
             raise TypeError('expect arguments of type (Locus, Locus) but found (%s, %s)' %
@@ -42,15 +46,17 @@ class Interval(object):
         self._start = Locus._from_java(self._jrep.start())
 
     @classmethod
+    @record_classmethod
     def _from_java(cls, jrep):
         interval = Interval.__new__(cls)
         interval._init_from_java(jrep)
         return interval
 
-    @staticmethod
+    @classmethod
     @handle_py4j
-    @typecheck(string=strlike)
-    def parse(string):
+    @record_classmethod
+    @typecheck_method(string=strlike)
+    def parse(cls, string):
         """Parses a genomic interval from string representation.
 
         **Examples**:
@@ -124,7 +130,7 @@ class Interval(object):
         return self._jrep.contains(locus._jrep)
 
     @handle_py4j
-    @typecheck_method(interval=anytype)
+    @typecheck_method(interval=interval_type)
     def overlaps(self, interval):
         """True if the the supplied interval contains any locus in common with this one.
 
@@ -140,3 +146,5 @@ class Interval(object):
         :rtype: bool"""
 
         return self._jrep.overlaps(interval._jrep)
+
+interval_type.set(Interval)

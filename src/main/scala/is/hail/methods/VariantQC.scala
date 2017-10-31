@@ -1,54 +1,16 @@
 package is.hail.methods
 
-import is.hail.annotations.Annotation
+import is.hail.annotations._
 import is.hail.expr.{TStruct, _}
+import is.hail.sparkextras.{OrderedRDD, OrderedRDD2}
 import is.hail.stats.LeveneHaldane
 import is.hail.utils._
-import is.hail.variant.{Genotype, Variant, VariantDataset}
-import org.apache.spark.rdd.RDD
+import is.hail.variant.{GenericDataset, Genotype, HTSGenotypeView, Variant, VariantDataset}
 import org.apache.spark.util.StatCounter
 
-import scala.collection.mutable
+import scala.reflect.classTag
 
-
-object VariantQCCombiner {
-  val header =
-    "callRate\t" +
-      "AC\t" +
-      "AF\t" +
-      "nCalled\t" +
-      "nNotCalled\t" +
-      "nHomRef\t" +
-      "nHet\t" +
-      "nHomVar\t" +
-      "dpMean\tdpStDev\t" +
-      "gqMean\tgqStDev\t" +
-      "nNonRef\t" +
-      "rHeterozygosity\t" +
-      "rHetHomVar\t" +
-      "rExpectedHetFrequency\tpHWE"
-
-  val signature = TStruct(
-    "callRate" -> TDouble,
-    "AC" -> TInt,
-    "AF" -> TDouble,
-    "nCalled" -> TInt,
-    "nNotCalled" -> TInt,
-    "nHomRef" -> TInt,
-    "nHet" -> TInt,
-    "nHomVar" -> TInt,
-    "dpMean" -> TDouble,
-    "dpStDev" -> TDouble,
-    "gqMean" -> TDouble,
-    "gqStDev" -> TDouble,
-    "nNonRef" -> TInt,
-    "rHeterozygosity" -> TDouble,
-    "rHetHomVar" -> TDouble,
-    "rExpectedHetFrequency" -> TDouble,
-    "pHWE" -> TDouble)
-}
-
-class VariantQCCombiner extends Serializable {
+final class VariantQCCombiner {
   var nNotCalled: Int = 0
   var nHomRef: Int = 0
   var nHet: Int = 0
@@ -58,156 +20,144 @@ class VariantQCCombiner extends Serializable {
 
   val gqSC: StatCounter = new StatCounter()
 
-  // FIXME per-genotype
-
-  def merge(g: Genotype): VariantQCCombiner = {
-    (g.gt: @unchecked) match {
-      case Some(0) =>
-        nHomRef += 1
-      case Some(1) =>
-        nHet += 1
-      case Some(2) =>
-        nHomVar += 1
-      case None =>
-        nNotCalled += 1
+  def mergeGT(gt: Int) {
+    (gt: @unchecked) match {
+      case 0 => nHomRef += 1
+      case 1 => nHet += 1
+      case 2 => nHomVar += 1
     }
-
-    if (g.isCalled) {
-      g.dp.foreach { v =>
-        dpSC.merge(v)
-      }
-      g.gq.foreach { v =>
-        gqSC.merge(v)
-      }
-    }
-
-    this
   }
 
-  def merge(that: VariantQCCombiner): VariantQCCombiner = {
-    nNotCalled += that.nNotCalled
-    nHomRef += that.nHomRef
-    nHet += that.nHet
-    nHomVar += that.nHomVar
-
-    dpSC.merge(that.dpSC)
-
-    gqSC.merge(that.gqSC)
-
-    this
+  def skipGT() {
+    nNotCalled += 1
   }
 
-  def emitSC(sb: mutable.StringBuilder, sc: StatCounter) {
-    sb.tsvAppend(someIf(sc.count > 0, sc.mean))
-    sb += '\t'
-    sb.tsvAppend(someIf(sc.count > 0, sc.stdev))
+  def mergeDP(dp: Int) {
+    dpSC.merge(dp)
   }
 
-  def HWEStats: (Option[Double], Double) = {
-    // rExpectedHetFrequency, pHWE
-    val n = nHomRef + nHet + nHomVar
+  def mergeGQ(gq: Int) {
+    gqSC.merge(gq)
+  }
+
+  def add(rvb: RegionValueBuilder) {
+    val nCalled = nHomRef + nHet + nHomVar
+    val n = nCalled + nNotCalled
+
+    val ac = nHet + 2 * nHomVar
+
     val nAB = nHet
-    val nA = nAB + 2 * nHomRef.min(nHomVar)
+    val nA = nAB + 2 * math.min(nHomRef, nHomVar)
 
-    val LH = LeveneHaldane(n, nA)
-    (divOption(LH.getNumericalMean, n), LH.exactMidP(nAB))
-  }
+    val LH = LeveneHaldane(nCalled, nA)
+    val hweP = LH.exactMidP(nAB)
 
-  def emit(sb: mutable.StringBuilder) {
-    val nCalled = nHomRef + nHet + nHomVar
+    rvb.startStruct() // qc
 
-    val callRate = divOption(nCalled, nCalled + nNotCalled)
-    val ac = nHet + 2 * nHomVar
+    // callRate
+    if (n != 0)
+      rvb.addDouble(nCalled.toDouble / n)
+    else
+      rvb.setMissing()
 
-    sb.tsvAppend(callRate)
-    sb += '\t'
-    sb.append(ac)
-    sb += '\t'
-    // MAF
-    val refAlleles = nHomRef * 2 + nHet
-    val altAlleles = nHomVar * 2 + nHet
-    sb.tsvAppend(divOption(altAlleles, refAlleles + altAlleles))
-    sb += '\t'
-    sb.append(nCalled)
-    sb += '\t'
-    sb.append(nNotCalled)
-    sb += '\t'
-    sb.append(nHomRef)
-    sb += '\t'
-    sb.append(nHet)
-    sb += '\t'
-    sb.append(nHomVar)
-    sb += '\t'
+    rvb.addInt(ac)
 
-    emitSC(sb, dpSC)
-    sb += '\t'
+    // af
+    if (nCalled != 0)
+      rvb.addDouble(ac.toDouble / (2 * nCalled))
+    else
+      rvb.setMissing()
 
-    emitSC(sb, gqSC)
-    sb += '\t'
+    rvb.addInt(nCalled)
+    rvb.addInt(nNotCalled)
+    rvb.addInt(nHomRef)
+    rvb.addInt(nHet)
+    rvb.addInt(nHomVar)
 
-    // nNonRef
-    sb.append(nHet + nHomVar)
-    sb += '\t'
-
-    // rHeterozygosity
-    sb.tsvAppend(divOption(nHet, nCalled))
-    sb += '\t'
-
-    // rHetHomVar
-    sb.tsvAppend(divOption(nHet, nHomVar))
-    sb += '\t'
-
-    // Hardy-Weinberg statistics
-    val hwe = HWEStats
-    sb.tsvAppend(hwe._1)
-    sb += '\t'
-    sb.tsvAppend(hwe._2)
-  }
-
-  def asAnnotation: Annotation = {
-    val af = {
-      val refAlleles = nHomRef * 2 + nHet
-      val altAlleles = nHomVar * 2 + nHet
-      divOption(altAlleles, refAlleles + altAlleles)
+    if (dpSC.count > 0) {
+      rvb.addDouble(dpSC.mean)
+      rvb.addDouble(dpSC.stdev)
+    } else {
+      rvb.setMissing()
+      rvb.setMissing()
     }
 
-    val nCalled = nHomRef + nHet + nHomVar
-    val hwe = HWEStats
-    val callrate = divOption(nCalled, nCalled + nNotCalled)
-    val ac = nHet + 2 * nHomVar
+    if (gqSC.count > 0) {
+      rvb.addDouble(gqSC.mean)
+      rvb.addDouble(gqSC.stdev)
+    } else {
+      rvb.setMissing()
+      rvb.setMissing()
+    }
 
-    Annotation(
-      divNull(nCalled, nCalled + nNotCalled),
-      ac,
-      af.getOrElse(null),
-      nCalled,
-      nNotCalled,
-      nHomRef,
-      nHet,
-      nHomVar,
-      nullIfNot(dpSC.count > 0, dpSC.mean),
-      nullIfNot(dpSC.count > 0, dpSC.stdev),
-      nullIfNot(gqSC.count > 0, gqSC.mean),
-      nullIfNot(gqSC.count > 0, gqSC.stdev),
-      nHet + nHomVar,
-      divNull(nHet, nHomRef + nHet + nHomVar),
-      divNull(nHet, nHomVar),
-      hwe._1.getOrElse(null),
-      hwe._2)
+    rvb.addInt(nHet + nHomVar)
+
+    if (nCalled != 0)
+      rvb.addDouble(nHet.toDouble / nCalled)
+    else
+      rvb.setMissing()
+
+    if (nHomVar != 0)
+      rvb.addDouble(nHet.toDouble / nHomVar)
+    else
+      rvb.setMissing()
+
+    // rExpectedHetFreq
+    if (nCalled != 0)
+      rvb.addDouble(LH.getNumericalMean / nCalled)
+    else
+      rvb.setMissing()
+
+    rvb.addDouble(hweP)
+    rvb.endStruct()
   }
 }
 
 object VariantQC {
-  def results(vds: VariantDataset): RDD[(Variant, VariantQCCombiner)] =
-    vds
-      .aggregateByVariant(new VariantQCCombiner)((comb, g) => comb.merge(g),
-        (comb1, comb2) => comb1.merge(comb2))
+  val signature = TStruct(
+    "callRate" -> TFloat64,
+    "AC" -> TInt32,
+    "AF" -> TFloat64,
+    "nCalled" -> TInt32,
+    "nNotCalled" -> TInt32,
+    "nHomRef" -> TInt32,
+    "nHet" -> TInt32,
+    "nHomVar" -> TInt32,
+    "dpMean" -> TFloat64,
+    "dpStDev" -> TFloat64,
+    "gqMean" -> TFloat64,
+    "gqStDev" -> TFloat64,
+    "nNonRef" -> TInt32,
+    "rHeterozygosity" -> TFloat64,
+    "rHetHomVar" -> TFloat64,
+    "rExpectedHetFrequency" -> TFloat64,
+    "pHWE" -> TFloat64)
 
-  def apply(vds: VariantDataset, root: String): VariantDataset = {
-    val (newVAS, insertQC) = vds.vaSignature.insert(VariantQCCombiner.signature,
-      Parser.parseAnnotationRoot(root, Annotation.VARIANT_HEAD))
-    vds.mapAnnotationsWithAggregate(new VariantQCCombiner, newVAS)((comb, v, va, s, sa, g) => comb.merge(g),
-      (comb1, comb2) => comb1.merge(comb2),
-      (va, comb) => insertQC(va, comb.asAnnotation))
+  def apply(vds: GenericDataset, root: String): GenericDataset = {
+    val localNSamples = vds.nSamples
+    val localRowType = vds.rowType
+
+    vds.insertIntoRow(() => HTSGenotypeView(localRowType))(VariantQC.signature,
+      "va" :: Parser.parseAnnotationRoot(root, Annotation.VARIANT_HEAD), { (view, rv, rvb) =>
+        view.setRegion(rv.region, rv.offset)
+        val comb = new VariantQCCombiner
+        var i = 0
+        while (i < localNSamples) {
+          view.setGenotype(i)
+          if (view.hasGT)
+            comb.mergeGT(view.getGT)
+          else
+            comb.skipGT()
+
+          if (view.hasDP)
+            comb.mergeDP(view.getDP)
+          if (view.hasGQ)
+            comb.mergeGQ(view.getGQ)
+
+          i += 1
+        }
+
+        comb.add(rvb)
+      })
   }
 }
