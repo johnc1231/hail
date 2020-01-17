@@ -393,7 +393,7 @@ def linear_regression_rows(y, x, covariates, block_size=16, pass_through=()) -> 
 
     y_is_list = isinstance(y, list)
     if y_is_list and len(y) == 0:
-        raise ValueError(f"'linear_regression_rows': found no values for 'y'")
+        raise ValueError(f"'linear_regression_rows': found nko values for 'y'")
     is_chained = y_is_list and isinstance(y[0], list)
     if is_chained and any(len(l) == 0 for l in y):
         raise ValueError(f"'linear_regression_rows': found empty inner list for 'y'")
@@ -445,6 +445,65 @@ def linear_regression_rows(y, x, covariates, block_size=16, pass_through=()) -> 
         ht_result = ht_result.annotate(**{f: ht_result[f][0] for f in fields})
 
     return ht_result.persist()
+
+
+@typecheck(y=oneof(expr_float64, sequenceof(expr_float64), sequenceof(sequenceof(expr_float64))),
+           x=expr_float64,
+           covariates=sequenceof(expr_float64),
+           block_size=int,
+           pass_through=sequenceof(oneof(str, Expression)))
+def linear_regression_rows_nd(y, x, covariates, block_size=16, pass_through=()) -> hail.Table:
+    mt = matrix_table_source('linear_regression_rows/x', x)
+    check_entry_indexed('linear_regression_rows/x', x)
+
+    y_is_list = isinstance(y, list)
+    if y_is_list and len(y) == 0:
+        raise ValueError(f"'linear_regression_rows': found no values for 'y'")
+    is_chained = y_is_list and isinstance(y[0], list)
+    if is_chained and any(len(l) == 0 for l in y):
+        raise ValueError(f"'linear_regression_rows': found empty inner list for 'y'")
+
+    y = wrap_to_list(y)
+
+    for e in (itertools.chain.from_iterable(y) if is_chained else y):
+        analyze('linear_regression_rows/y', e, mt._col_indices)
+
+    for e in covariates:
+        analyze('linear_regression_rows/covariates', e, mt._col_indices)
+
+    _warn_if_no_intercept('linear_regression_rows', covariates)
+
+    x_field_name = Env.get_uid()
+    if is_chained:
+        y_field_names = [[f'__y_{i}_{j}' for j in range(len(y[i]))] for i in range(len(y))]
+        y_dict = dict(zip(itertools.chain.from_iterable(y_field_names), itertools.chain.from_iterable(y)))
+        func = 'LinearRegressionRowsChained'
+
+    else:
+        y_field_names = list(f'__y_{i}' for i in range(len(y)))
+        y_dict = dict(zip(y_field_names, y))
+        func = 'LinearRegressionRowsSingle'
+
+    cov_field_names = list(f'__cov{i}' for i in range(len(covariates)))
+
+    row_fields = _get_regression_row_fields(mt, pass_through, 'linear_regression_rows')
+
+    # FIXME: selecting an existing entry field should be emitted as a SelectFields
+    mt = mt._select_all(col_exprs=dict(**y_dict,
+                                       **dict(zip(cov_field_names, covariates))),
+                        row_exprs=row_fields,
+                        col_key=[],
+                        entry_exprs={x_field_name: x})
+
+    entries_field_name = 'x'
+    ht = mt._localize_entries(entries_field_name, "confused")
+    # Now here, I want to transmute away the entries field name struct to get arrays
+    ht = ht.transmute(**{entries_field_name: ht.__getattr__(entries_field_name).__getattr__(x_field_name)})
+    #Now need to group everything
+    ht = ht._group_within_partitions(block_size)
+    ht = ht.transmute(**{x_field_name: ht.__getattr__("grouped_fields").__getattr__(x_field_name)})
+
+    return ht
 
 
 @typecheck(test=enumeration('wald', 'lrt', 'score', 'firth'),
