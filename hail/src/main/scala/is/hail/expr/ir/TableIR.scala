@@ -1770,6 +1770,7 @@ case class TableGroupWithinPartitions(child: TableIR, n: Int) extends TableIR {
     val keyIndices = child.typ.keyFieldIdx
 
     val blockSize = n
+
     val newRVD = prevRVD.mapPartitionsWithIndex(newRVDType, { (int, ctx, it) =>
       val targetRegion = ctx.region
 
@@ -1780,7 +1781,7 @@ case class TableGroupWithinPartitions(child: TableIR, n: Int) extends TableIR {
 
         override def next(): RegionValue = {
           if (!hasNext)
-            throw new java.util.NoSuchElementException()
+            throw new java.util.NoSuchElementException("TableGroupWithinPartitions had no element")
 
           val offsetArray = new Array[Long](blockSize) // May be longer than the amount of data
           var childIterationCount = 0
