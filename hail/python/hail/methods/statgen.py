@@ -1,5 +1,6 @@
 import itertools
 import functools
+import builtins
 import math
 import numpy as np
 from typing import *
@@ -528,12 +529,16 @@ def linear_regression_rows_nd(y, x, covariates, block_size=16, pass_through=()) 
 
     # Ok, now I need covariate matrix as an ndarray too. That's in the globals, Indexed under sample_field_name, then the cov field names.
     # TODO: Almost right, except I am not dealing with missingness!
-    ht = ht.annotate_globals(__cov_nd=hl.nd.array(ht.__getattr__(sample_field_name).map(lambda struct: hl.array([struct[cov_name] for cov_name in cov_field_names]))))
+    ht = ht.annotate_globals(__cov_nd=hl.nd.array(ht[sample_field_name].map(lambda struct: hl.array([struct[cov_name] for cov_name in cov_field_names]))))
 
-    k = len(covariates)
-
+    k = builtins.len(covariates)
     n = hl.len(ht.globals.__getattr__(sample_field_name).__getattr__("__y_0"))# TODO will change with missingness / multipheno
-    #ht = ht.annotate_globals(__cov_Qt=hl.if_else(k > 0, hl.nd.qr(ht.__cov_nd)[0].T, hl.nd.zeros((1, n))))  # Why the hell does the zero matrix have 0 rows in Breeze?
+    #d = n - k - 1
+    #if d < 1:
+    #    raise FatalError(f"{n} samples and {k + 1} covariates (including x) implies ${d} degrees of freedom.")
+
+    ht = ht.annotate_globals(__cov_Qt=hl.if_else(k > 0, hl.nd.qr(ht.__cov_nd)[0].T, hl.nd.zeros((1, n))))  # Why the hell does the zero matrix have 0 rows in Breeze?
+    ht = ht.annotate_globals(__y_0_nd=hl.nd.array(ht[sample_field_name].map(lambda struct: struct["__y_0"].reshape((n, 1)))))
     #ht = ht.annotate_globals(__Qty=Qt @ ???)
 
     return (ht, just_before_grouping, just_after_grouping)
