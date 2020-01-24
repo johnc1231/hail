@@ -516,8 +516,11 @@ def linear_regression_rows_nd(y, x, covariates, block_size=16, pass_through=()) 
 
     # Now here, I want to transmute away the entries field name struct to get arrays
     ht = ht.transmute(**{entries_field_name: ht[entries_field_name][x_field_name]})
+    just_before_grouping = ht
     # Now need to group everything
+    ht = just_before_grouping.checkpoint("just_before_grouping_chk.mt", overwrite=True)
     ht = ht._group_within_partitions(block_size) # breaking point for show with filtering, idk why
+    just_after_grouping = ht
     # Lift the entries field out into the array of arrays for making an ndarray
     ht = ht.transmute(**{entries_field_name: ht.__getattr__("grouped_fields").__getattr__(entries_field_name)})
     # actually make it an ndarray
@@ -530,10 +533,10 @@ def linear_regression_rows_nd(y, x, covariates, block_size=16, pass_through=()) 
     k = len(covariates)
 
     n = hl.len(ht.globals.__getattr__(sample_field_name).__getattr__("__y_0"))# TODO will change with missingness / multipheno
-    ht = ht.annotate_globals(__cov_Qt=hl.if_else(k > 0, hl.nd.qr(ht.__cov_nd)[0].T, hl.nd.zeros((1, n))))  # Why the hell does the zero matrix have 0 rows in Breeze?
+    #ht = ht.annotate_globals(__cov_Qt=hl.if_else(k > 0, hl.nd.qr(ht.__cov_nd)[0].T, hl.nd.zeros((1, n))))  # Why the hell does the zero matrix have 0 rows in Breeze?
     #ht = ht.annotate_globals(__Qty=Qt @ ???)
 
-    return ht
+    return (ht, just_before_grouping, just_after_grouping)
 
 
 @typecheck(test=enumeration('wald', 'lrt', 'score', 'firth'),
