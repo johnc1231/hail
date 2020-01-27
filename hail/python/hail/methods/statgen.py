@@ -523,7 +523,7 @@ def linear_regression_rows_nd(y, x, covariates, block_size=16, pass_through=()) 
     ht = ht._group_within_partitions(block_size) # breaking point for show with filtering, idk why
     just_after_grouping = ht
     # Lift the entries field out into the array of arrays for making an ndarray
-    ht = ht.transmute(**{entries_field_name: ht.__getattr__("grouped_fields").__getattr__(entries_field_name)})
+    ht = ht.transmute(**{entries_field_name: ht["grouped_fields"][entries_field_name]})
     # actually make it an ndarray
     ht = ht.annotate(**{X_field_name: hl.nd.array(ht[entries_field_name]).T}) #TODO Should this transpose be here? Otherwise dimensions are wonky.
 
@@ -532,12 +532,12 @@ def linear_regression_rows_nd(y, x, covariates, block_size=16, pass_through=()) 
     ht = ht.annotate_globals(__cov_nd=hl.nd.array(ht[sample_field_name].map(lambda struct: hl.array([struct[cov_name] for cov_name in cov_field_names]))))
 
     k = builtins.len(covariates)
-    n = hl.len(ht.globals.__getattr__(sample_field_name).__getattr__("__y_0"))# TODO will change with missingness / multipheno
+    n = hl.len(ht.globals[sample_field_name]["__y_0"]) # TODO will change with missingness / multipheno
     #d = n - k - 1
     #if d < 1:
     #    raise FatalError(f"{n} samples and {k + 1} covariates (including x) implies ${d} degrees of freedom.")
 
-    ht = ht.annotate_globals(__cov_Qt=hl.if_else(k > 0, hl.nd.qr(ht.__cov_nd)[0].T, hl.nd.zeros((1, n))))  # Why the hell does the zero matrix have 0 rows in Breeze?
+    ht = ht.annotate_globals(__cov_Qt=hl.if_else(k > 0, hl.nd.qr(ht.__cov_nd)[0].T, hl.nd.zeros((1, n))))  # TODOD Why the hell does the zero matrix have 0 rows in Breeze? Probably handling this case wrong.
     ht = ht.annotate_globals(__y_0_nd=hl.nd.array(ht[sample_field_name].map(lambda struct: struct["__y_0"])).reshape((n, 1)))
     ht = ht.annotate_globals(__Qty=ht.__cov_Qt @ ht.__y_0_nd)
 
