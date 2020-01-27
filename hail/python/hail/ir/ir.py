@@ -640,6 +640,22 @@ class NDArrayShape(IR):
         self._type = ttuple(*[tint64 for _ in range(self.nd.typ.ndim)])
 
 
+class NDArrayToArray(IR):
+    @typecheck_method(nd=IR)
+    def __init__(self, nd):
+        super().__init__(nd)
+        self.nd = nd
+
+    @typecheck_method(nd=IR)
+    def copy(self, nd):
+        return NDArrayToArray(nd)
+
+    def _compute_type(self, env, agg_env):
+        self.nd._compute_type(env, agg_env)
+        self._type = self.nd.typ.element_type
+        for i in range(self.nd.typ.ndim):
+            self._type = tarray(self._type)
+
 class NDArrayReshape(IR):
     @typecheck_method(nd=IR, shape=IR)
     def __init__(self, nd, shape):

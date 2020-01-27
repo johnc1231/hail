@@ -3652,6 +3652,9 @@ class NDArrayExpression(Expression):
                               tndarray(self._type.element_type, n_output_dims),
                               self._indices, self._aggregations)
 
+    def to_array(self):
+        return construct_expr(NDArrayToArray(self.__ir), tarray(self._type.element_type), self._indices, self._aggregations)
+
 
 class NDArrayNumericExpression(NDArrayExpression):
     """Expression of type :class:`.tndarray` with a numeric element type.
