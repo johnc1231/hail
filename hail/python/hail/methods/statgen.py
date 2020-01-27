@@ -525,7 +525,7 @@ def linear_regression_rows_nd(y, x, covariates, block_size=16, pass_through=()) 
     # Lift the entries field out into the array of arrays for making an ndarray
     ht = ht.transmute(**{entries_field_name: ht.__getattr__("grouped_fields").__getattr__(entries_field_name)})
     # actually make it an ndarray
-    ht = ht.annotate(**{X_field_name: hl.nd.array(ht.__getattr__(entries_field_name))})
+    ht = ht.annotate(**{X_field_name: hl.nd.array(ht[entries_field_name]).T}) #TODO Should this transpose be here? Otherwise dimensions are wonky.
 
     # Ok, now I need covariate matrix as an ndarray too. That's in the globals, Indexed under sample_field_name, then the cov field names.
     # TODO: Almost right, except I am not dealing with missingness!
@@ -541,10 +541,10 @@ def linear_regression_rows_nd(y, x, covariates, block_size=16, pass_through=()) 
     ht = ht.annotate_globals(__y_0_nd=hl.nd.array(ht[sample_field_name].map(lambda struct: struct["__y_0"])).reshape((n, 1)))
     ht = ht.annotate_globals(__Qty=ht.__cov_Qt @ ht.__y_0_nd)
 
+    ht = ht.annotate(AC=(ht[X_field_name].T @ hl.nd.ones((n, 1))))
     ht = ht.annotate(__Qtx=ht.__cov_Qt @ ht[X_field_name])
     ht = ht.annotate(__ytx=ht.__y_0_nd.T @ ht[X_field_name])
-
-
+    ht = ht.annotate(__xyp=ht.__ytx - (ht.__Qty.T @ ht.__Qty))
 
     return (ht, just_before_grouping, just_after_grouping)
 
