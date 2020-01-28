@@ -533,7 +533,8 @@ def linear_regression_rows_nd(y, x, covariates, block_size=16, pass_through=()) 
 
     k = builtins.len(covariates)
     n = hl.len(ht.globals[sample_field_name]["__y_0"]) # TODO will change with missingness / multipheno
-    #d = n - k - 1
+    d = n - k - 1
+    dRec = 1.0 / d
     #if d < 1:
     #    raise FatalError(f"{n} samples and {k + 1} covariates (including x) implies ${d} degrees of freedom.")
 
@@ -541,15 +542,15 @@ def linear_regression_rows_nd(y, x, covariates, block_size=16, pass_through=()) 
     ht = ht.annotate_globals(__y_0_nd=hl.nd.array(ht[sample_field_name].map(lambda struct: struct["__y_0"])).reshape((n, 1)))
     ht = ht.annotate_globals(__Qty=ht.__cov_Qt @ ht.__y_0_nd)
 
-    just_before_AC = ht
-    ht = ht.annotate(AC=(ht[X_field_name].T @ hl.nd.ones((n))))
+    ht = ht.annotate(sum_x_nd=(ht[X_field_name].T @ hl.nd.ones((n,))))
     ht = ht.annotate(__Qtx=ht.__cov_Qt @ ht[X_field_name])
     ht = ht.annotate(__ytx=ht.__y_0_nd.T @ ht[X_field_name])
     ht = ht.annotate(__xyp=ht.__ytx - (ht.__Qty.T @ ht.__Qty))
 
-    #final = ht
 
-    return (just_before_AC, ht, just_before_grouping, just_after_grouping)
+    final = ht
+
+    return (final, ht, just_before_grouping, just_after_grouping)
 
 
 @typecheck(test=enumeration('wald', 'lrt', 'score', 'firth'),

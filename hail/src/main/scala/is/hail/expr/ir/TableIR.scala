@@ -1235,7 +1235,7 @@ case class TableExplode(child: TableIR, path: IndexedSeq[String]) extends TableI
       "row", prev.rvd.rowPType,
       idx.name, PInt32(),
       newRow)
-    assert(t.virtualType == typ.rowType)
+    assert(t.virtualType isOfType typ.rowType)
 
     val rvdType: RVDType = RVDType(
       newRow.pType,
