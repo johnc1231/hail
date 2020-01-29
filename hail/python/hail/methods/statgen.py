@@ -562,6 +562,7 @@ def linear_regression_rows_nd(y, x, covariates, block_size=16, pass_through=()) 
     ht = ht.annotate(__Qtx=ht.__cov_Qt @ ht[X_field_name])
     ht = ht.annotate(__ytx=ht.__y_0_nd.T @ ht[X_field_name])
     ht = ht.annotate(__xyp=ht.__ytx - (ht.__Qty.T @ ht.__Qty))
+    #ht = ht.annotate(__xxpRec=().map(lambda entry: 1 / entry))
 
     res = ht.key_by()
     res = zip_to_struct(res, "all_zipped", locus=res.grouped_fields.locus, alleles=res.grouped_fields.alleles, sum_x=res.sum_x,

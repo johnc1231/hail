@@ -116,7 +116,14 @@ case class LinearRegressionRowsSingle(
 
             val qtx: DenseMatrix[Double] = QtBc.value * X
             val qty: DenseMatrix[Double] = QtyBc.value
+            //val temp = X.t(*, ::).map(r => r dot r)
             val xxpRec: DenseVector[Double] = 1.0 / (X.t(*, ::).map(r => r dot r) - qtx.t(*, ::).map(r => r dot r))
+            /*
+            1. For each row in the matrix X.t: Dot the row with itself (creating a single vector).
+            2. For each row in the matrix qtx.t: Dot the row with itself (creating a single vector).
+            3. Find the difference between the two, then additionally map reciprocal over the vector.
+             */
+
             val ytx: DenseMatrix[Double] = yBc.value.t * X
             assert(ytx.rows == yBc.value.cols && ytx.cols == blockLength)
 

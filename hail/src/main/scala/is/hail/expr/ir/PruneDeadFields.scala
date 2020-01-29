@@ -1082,24 +1082,27 @@ object PruneDeadFields {
         )
         unifyEnvs(
           bodyEnv.deleteEval(valueName),
-          memoizeValueIR(nd, ndType, memo)
+          memoizeValueIR(nd, ndType.copy(elementType = valueType), memo)
         )
       case NDArrayMap2(left, right, leftName, rightName, body) =>
         val leftType = left.typ.asInstanceOf[TNDArray]
         val rightType = right.typ.asInstanceOf[TNDArray]
         val bodyEnv = memoizeValueIR(body, requestedType.asInstanceOf[TNDArray].elementType, memo)
 
-//        val valueType = unify(
-//          leftType.elementType,
-//          rightType.elementType,
-//          bodyEnv.eval.lookupOption(leftName).map(_.result()).getOrElse(Array()):_*,
-//          bodyEnv.eval.lookupOption(rightName).map(_.result()).getOrElse(Array()):_*
-//        )
+        val leftValueType = unify(
+          leftType.elementType,
+          bodyEnv.eval.lookupOption(leftName).map(_.result()).getOrElse(Array()):_*
+        )
+
+        val rightValueType = unify(
+          rightType.elementType,
+          bodyEnv.eval.lookupOption(rightName).map(_.result()).getOrElse(Array()):_*
+        )
 
         unifyEnvs(
           bodyEnv.deleteEval(leftName).deleteEval(rightName),
-          memoizeValueIR(left, leftType, memo),
-          memoizeValueIR(right, rightType, memo)
+          memoizeValueIR(left, leftType.copy(elementType = leftValueType), memo),
+          memoizeValueIR(right, rightType.copy(elementType = rightValueType), memo)
         )
 
       case AggExplode(a, name, body, isScan) =>
