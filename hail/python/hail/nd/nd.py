@@ -189,6 +189,18 @@ def ones(shape, dtype=hl.tfloat64):
     return full(shape, 1, dtype)
 
 
+@typecheck(nd=expr_ndarray())
+def diagonal(nd):
+    """Gets the diagonal of a 2d NDArray
+
+    :param nd: A 2 dimensional NDArray
+    :return: A 1 dimension NDArray containing the diagonal of `nd`.
+    """
+    assert nd.ndim == 2
+    shape_min = hl.min(nd.shape[0], nd.shape[1])
+    return hl.nd.array(hl.range(hl.int32(shape_min)).map(lambda i: nd[i, i]))
+
+
 @typecheck(nd=expr_ndarray(), mode=str)
 def qr(nd, mode="reduced"):
     """Performs a QR decomposition.
