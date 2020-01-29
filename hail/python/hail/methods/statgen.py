@@ -562,12 +562,14 @@ def linear_regression_rows_nd(y, x, covariates, block_size=16, pass_through=()) 
     ht = ht.annotate(__Qtx=ht.__cov_Qt @ ht[X_field_name])
     ht = ht.annotate(__ytx=ht.__y_0_nd.T @ ht[X_field_name])
     ht = ht.annotate(__xyp=ht.__ytx - (ht.__Qty.T @ ht.__Qty))
-    #ht = ht.annotate(__xxpRec=().map(lambda entry: 1 / entry))
+    ht = ht.annotate(__xxpRec=().map(lambda entry: 1 / entry))
 
     res = ht.key_by()
     res = zip_to_struct(res, "all_zipped", locus=res.grouped_fields.locus, alleles=res.grouped_fields.alleles, sum_x=res.sum_x,
                         y_transpose_x=nd_to_array(res.__ytx))
-    res = res.select(res.all_zipped)
+    res = res.explode(res.all_zipped)
+    res = res.select(**{field: res.row.all_zipped[field] for field in res.row.all_zipped})
+    res = res.key_by(res.locus, res.alleles) #TODO Going to need to use IR directly here to indicate is_sorted = True for TableKeyBy
 
     return (res, ht, just_before_grouping, just_after_grouping)
 
