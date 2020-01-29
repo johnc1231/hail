@@ -510,6 +510,21 @@ def linear_regression_rows_nd(y, x, covariates, block_size=16, pass_through=()) 
     def all_defined(struct_root, field_names):
         return functools.reduce(lambda a, b: a & b, [struct_root[field_name] for field_name in field_names])
 
+    def nd_to_array(mat):
+        if mat.ndim == 1:
+            return hl.range(hl.int32(mat.shape[0])).map(lambda i: mat[i])
+        elif mat.ndim == 2:
+            return hl.range(hl.int32(mat.shape[0])).map(lambda i:
+                                                        hl.range(hl.int32(mat.shape[1])).map(lambda j: (mat[i, j])))
+
+    def zip_to_struct(ht, struct_root_name, **kwargs):
+        mapping = list(kwargs.items())
+        sources = [pair[1] for pair in mapping]
+        dests = [pair[0] for pair in mapping]
+        ht = ht.annotate(**{struct_root_name: hl.zip(*sources)})
+        ht = ht.transmute(**{struct_root_name : ht[struct_root_name].map(lambda tup: hl.struct(**{dests[i]:tup[i] for i in range(len(dests))}))})
+        return ht
+
     ht = mt._localize_entries(entries_field_name, sample_field_name)
 
     # probably a zip with index and filter
@@ -538,19 +553,21 @@ def linear_regression_rows_nd(y, x, covariates, block_size=16, pass_through=()) 
     #if d < 1:
     #    raise FatalError(f"{n} samples and {k + 1} covariates (including x) implies ${d} degrees of freedom.")
 
-    ht = ht.annotate_globals(__cov_Qt=hl.if_else(k > 0, hl.nd.qr(ht.__cov_nd)[0].T, hl.nd.zeros((1, n))))  # TODOD Why the hell does the zero matrix have 0 rows in Breeze? Probably handling this case wrong.
-    ht = ht.annotate_globals(__y_0_nd=hl.nd.array(ht[sample_field_name].map(lambda struct: struct["__y_0"])).reshape((n, 1)))
+    ht = ht.annotate_globals(__cov_Qt=hl.if_else(k > 0, hl.nd.qr(ht.__cov_nd)[0].T, hl.nd.zeros((1, n))))  # TODOD Why the hell does the zero matrix have 0 rows in Breeze? I'm probably handling this case wrong.
+    ht = ht.annotate_globals(__y_0_nd=hl.nd.array(ht[sample_field_name].map(lambda struct: struct["__y_0"])))
     ht = ht.annotate_globals(__Qty=ht.__cov_Qt @ ht.__y_0_nd)
 
     ht = ht.annotate(sum_x_nd=(ht[X_field_name].T @ hl.nd.ones((n,))))
+    ht = ht.annotate(sum_x=nd_to_array(ht.sum_x_nd))
     ht = ht.annotate(__Qtx=ht.__cov_Qt @ ht[X_field_name])
     ht = ht.annotate(__ytx=ht.__y_0_nd.T @ ht[X_field_name])
     ht = ht.annotate(__xyp=ht.__ytx - (ht.__Qty.T @ ht.__Qty))
 
+    res = ht.key_by()
+    res = zip_to_struct(res, "all_zipped", locus=res.grouped_fields.locus, alleles=res.grouped_fields.alleles, sum_x=res.sum_x)
+    res = res.select(res.all_zipped)
 
-    final = ht
-
-    return (final, ht, just_before_grouping, just_after_grouping)
+    return (res, ht, just_before_grouping, just_after_grouping)
 
 
 @typecheck(test=enumeration('wald', 'lrt', 'score', 'firth'),
