@@ -191,10 +191,16 @@ def ones(shape, dtype=hl.tfloat64):
 
 @typecheck(nd=expr_ndarray())
 def diagonal(nd):
-    """Gets the diagonal of a 2d NDArray
+    """Gets the diagonal of a 2 dimensional NDArray.
 
-    :param nd: A 2 dimensional NDArray
-    :return: A 1 dimension NDArray containing the diagonal of `nd`.
+    Examples
+    --------
+
+    >>> hl.eval(hl.nd.diagonal(hl.nd.array([[1, 2], [3, 4]])))
+    array([1, 4], dtype=int32)
+
+    :param nd: A 2 dimensional NDArray, shape(M, N).
+    :return: A 1 dimension NDArray of length min (M, N), containing the diagonal of `nd`.
     """
     assert nd.ndim == 2
     shape_min = hl.min(nd.shape[0], nd.shape[1])
