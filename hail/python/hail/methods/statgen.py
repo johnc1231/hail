@@ -537,8 +537,6 @@ def linear_regression_rows_nd(y, x, covariates, block_size=16, pass_through=()) 
     ht = just_before_grouping.checkpoint("just_before_grouping_chk.mt", overwrite=True)
     ht = ht._group_within_partitions(block_size) # breaking point for show with filtering, idk why
     just_after_grouping = ht
-    # Lift the entries field out into the array of arrays for making an ndarray
-    #ht = ht.transmute(**{entries_field_name: ht["grouped_fields"][entries_field_name]})
     # actually make it an ndarray
     ht = ht.annotate(**{X_field_name: hl.nd.array(ht["grouped_fields"][entries_field_name]).T}) #TODO Should this transpose be here? Otherwise dimensions are wonky.
 
@@ -562,7 +560,7 @@ def linear_regression_rows_nd(y, x, covariates, block_size=16, pass_through=()) 
     ht = ht.annotate(__Qtx=ht.__cov_Qt @ ht[X_field_name])
     ht = ht.annotate(__ytx=ht.__y_0_nd.T @ ht[X_field_name])
     ht = ht.annotate(__xyp=ht.__ytx - (ht.__Qty.T @ ht.__Qty))
-    ht = ht.annotate(__xxpRec=().map(lambda entry: 1 / entry))
+    ht = ht.annotate(__xxpRec=(hl.nd.diagonal(ht[X_field_name].T @ ht[X_field_name]) - hl.nd.diagonal(ht.__Qtx.T @ ht.__Qtx)).map(lambda entry: 1 / entry))
 
     res = ht.key_by()
     res = zip_to_struct(res, "all_zipped", locus=res.grouped_fields.locus, alleles=res.grouped_fields.alleles, sum_x=res.sum_x,
