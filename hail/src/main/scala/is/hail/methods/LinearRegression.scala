@@ -128,6 +128,9 @@ case class LinearRegressionRowsSingle(
             assert(ytx.rows == yBc.value.cols && ytx.cols == blockLength)
 
             val xyp: DenseMatrix[Double] = ytx - (qty.t * qtx)
+            log.info(s"ytx.shape = (${ytx.rows}, ${ytx.cols})")
+            log.info(s"qty.shape = (${qty.rows}, ${qty.cols})")
+            log.info(s"xyp.shape = (${xyp.rows}, ${xyp.cols})")
             val yyp: DenseVector[Double] = yypBc.value
 
             // resuse xyp

@@ -542,6 +542,7 @@ def linear_regression_rows_nd(y, x, covariates, block_size=16, pass_through=()) 
 
     # Ok, now I need covariate matrix as an ndarray too. That's in the globals, Indexed under sample_field_name, then the cov field names.
     # TODO: Almost right, except I am not dealing with missingness!
+    ht = ht.annotate_globals(__y_nd=hl.nd.array(ht[sample_field_name].map(lambda struct: hl.array([struct[y_name] for y_name in y_field_names]))))
     ht = ht.annotate_globals(__cov_nd=hl.nd.array(ht[sample_field_name].map(lambda struct: hl.array([struct[cov_name] for cov_name in cov_field_names]))))
 
     k = builtins.len(covariates)
@@ -552,13 +553,14 @@ def linear_regression_rows_nd(y, x, covariates, block_size=16, pass_through=()) 
     #    raise FatalError(f"{n} samples and {k + 1} covariates (including x) implies ${d} degrees of freedom.")
 
     ht = ht.annotate_globals(__cov_Qt=hl.if_else(k > 0, hl.nd.qr(ht.__cov_nd)[0].T, hl.nd.zeros((1, n))))  # TODOD Why the hell does the zero matrix have 0 rows in Breeze? I'm probably handling this case wrong.
-    ht = ht.annotate_globals(__y_0_nd=hl.nd.array(ht[sample_field_name].map(lambda struct: struct["__y_0"])))
-    ht = ht.annotate_globals(__Qty=ht.__cov_Qt @ ht.__y_0_nd)
+    #ht = ht.annotate_globals(__y_0_nd=hl.nd.array(ht[sample_field_name].map(lambda struct: struct["__y_0"])))
+    ht = ht.annotate_globals(__Qty=ht.__cov_Qt @ ht.__y_nd)
+    ht = ht.annotate_globals(__yyp=hl.nd.diagonal(ht.__y_nd.T @ ht.__y_nd) - hl.nd.diagonal(ht.__Qty.T @ ht.__Qty))
 
     ht = ht.annotate(sum_x_nd=(ht[X_field_name].T @ hl.nd.ones((n,))))
     ht = ht.annotate(sum_x=nd_to_array(ht.sum_x_nd))
     ht = ht.annotate(__Qtx=ht.__cov_Qt @ ht[X_field_name])
-    ht = ht.annotate(__ytx=ht.__y_0_nd.T @ ht[X_field_name])
+    ht = ht.annotate(__ytx=ht.__y_nd.T @ ht[X_field_name])
     ht = ht.annotate(__xyp=ht.__ytx - (ht.__Qty.T @ ht.__Qty))
     ht = ht.annotate(__xxpRec=(hl.nd.diagonal(ht[X_field_name].T @ ht[X_field_name]) - hl.nd.diagonal(ht.__Qtx.T @ ht.__Qtx)).map(lambda entry: 1 / entry))
 
