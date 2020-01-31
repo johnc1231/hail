@@ -546,27 +546,30 @@ def linear_regression_rows_nd(y, x, covariates, block_size=16, pass_through=()) 
     ht = ht.annotate_globals(__cov_nd=hl.nd.array(ht[sample_field_name].map(lambda struct: hl.array([struct[cov_name] for cov_name in cov_field_names]))))
 
     k = builtins.len(covariates)
-    n = hl.len(ht.globals[sample_field_name]["__y_0"]) # TODO will change with missingness / multipheno
-    d = n - k - 1
-    dRec = 1.0 / d
     #if d < 1:
     #    raise FatalError(f"{n} samples and {k + 1} covariates (including x) implies ${d} degrees of freedom.")
 
-    ht = ht.annotate_globals(__cov_Qt=hl.if_else(k > 0, hl.nd.qr(ht.__cov_nd)[0].T, hl.nd.zeros((1, n))))  # TODOD Why the hell does the zero matrix have 0 rows in Breeze? I'm probably handling this case wrong.
-    #ht = ht.annotate_globals(__y_0_nd=hl.nd.array(ht[sample_field_name].map(lambda struct: struct["__y_0"])))
+    ht = ht.annotate_globals(n=hl.len(ht.globals[sample_field_name]["__y_0"]))
+    ht = ht.annotate_globals(d=ht.n-k-1)
+    ht = ht.annotate_globals(__cov_Qt=hl.if_else(k > 0, hl.nd.qr(ht.__cov_nd)[0].T, hl.nd.zeros((1, ht.n))))  # TODOD Why the hell does the zero matrix have 0 rows in Breeze? I'm probably handling this case wrong.
     ht = ht.annotate_globals(__Qty=ht.__cov_Qt @ ht.__y_nd)
     ht = ht.annotate_globals(__yyp=hl.nd.diagonal(ht.__y_nd.T @ ht.__y_nd) - hl.nd.diagonal(ht.__Qty.T @ ht.__Qty))
 
-    ht = ht.annotate(sum_x_nd=(ht[X_field_name].T @ hl.nd.ones((n,))))
+    ht = ht.annotate(sum_x_nd=(ht[X_field_name].T @ hl.nd.ones((ht.n,))))
     ht = ht.annotate(sum_x=nd_to_array(ht.sum_x_nd))
     ht = ht.annotate(__Qtx=ht.__cov_Qt @ ht[X_field_name])
     ht = ht.annotate(__ytx=ht.__y_nd.T @ ht[X_field_name])
-    ht = ht.annotate(__xyp=ht.__ytx - (ht.__Qty.T @ ht.__Qty))
+    ht = ht.annotate(__xyp=ht.__ytx - (ht.__Qty.T @ ht.__Qtx))
     ht = ht.annotate(__xxpRec=(hl.nd.diagonal(ht[X_field_name].T @ ht[X_field_name]) - hl.nd.diagonal(ht.__Qtx.T @ ht.__Qtx)).map(lambda entry: 1 / entry))
+    ht = ht.annotate(__b=ht.__xyp * ht.__xxpRec)
+    ht = ht.annotate(__se=((1.0/ht.d) * (ht.__yyp.reshape((-1, 1)) @ ht.__xxpRec.reshape((1, -1)) - (ht.__b * ht.__b))).map(lambda entry: hl.sqrt(entry)))
+    ht = ht.annotate(__t=ht.__b / ht.__se)
+    ht = ht.annotate(__p=ht.__t.map(lambda entry: 2 * hl.expr.functions.pT(-hl.abs(entry), ht.d, True, False)))
 
     res = ht.key_by()
     res = zip_to_struct(res, "all_zipped", locus=res.grouped_fields.locus, alleles=res.grouped_fields.alleles, sum_x=res.sum_x,
-                        y_transpose_x=nd_to_array(res.__ytx))
+                        y_transpose_x=nd_to_array(res.__ytx.T), beta=nd_to_array(res.__b.T), standard_error=nd_to_array(res.__se.T),
+                        t_stat=nd_to_array(res.__t.T), p_value=nd_to_array(res.__p.T))
     res = res.explode(res.all_zipped)
     res = res.select(**{field: res.row.all_zipped[field] for field in res.row.all_zipped})
     res = res.key_by(res.locus, res.alleles) #TODO Going to need to use IR directly here to indicate is_sorted = True for TableKeyBy

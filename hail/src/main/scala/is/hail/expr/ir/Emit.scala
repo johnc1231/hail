@@ -2252,7 +2252,7 @@ object NDArrayEmitter {
       val notSameAndNotBroadcastable = !((left ceq right) || (left ceq 1L) || (right ceq 1L))
       coerce[Long](Code(
         notSameAndNotBroadcastable.mux(
-          Code._fatal("Incompatible NDArray shapes"),
+          Code._fatal(new CodeString("Incompatible NDArray shapes: ").concat(left.toS).concat(" ").concat(right.toS)),
           (left > right).mux(left, right)
         )
       ))
