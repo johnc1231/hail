@@ -538,11 +538,11 @@ def linear_regression_rows_nd(y, x, covariates, block_size=16, pass_through=()) 
     ht = ht._group_within_partitions(block_size) # breaking point for show with filtering, idk why
     just_after_grouping = ht
     # actually make it an ndarray
-    ht = ht.annotate(**{X_field_name: hl.nd.array(ht["grouped_fields"][entries_field_name]).T}) #TODO Should this transpose be here? Otherwise dimensions are wonky.
+    ht = ht.annotate(**{X_field_name: hl.nd.array(ht["grouped_fields"][entries_field_name]).T})
 
-    # Ok, now I need covariate matrix as an ndarray too. That's in the globals, Indexed under sample_field_name, then the cov field names.
     # TODO: Almost right, except I am not dealing with missingness!
     ht = ht.annotate_globals(__y_nd=hl.nd.array(ht[sample_field_name].map(lambda struct: hl.array([struct[y_name] for y_name in y_field_names]))))
+    # TODO: When there are no covariates, can't call array.
     ht = ht.annotate_globals(__cov_nd=hl.nd.array(ht[sample_field_name].map(lambda struct: hl.array([struct[cov_name] for cov_name in cov_field_names]))))
 
     k = builtins.len(covariates)
@@ -572,7 +572,9 @@ def linear_regression_rows_nd(y, x, covariates, block_size=16, pass_through=()) 
                         t_stat=nd_to_array(res.__t.T), p_value=nd_to_array(res.__p.T))
     res = res.explode(res.all_zipped)
     res = res.select(**{field: res.row.all_zipped[field] for field in res.row.all_zipped})
-    res = res.key_by(res.locus, res.alleles) #TODO Going to need to use IR directly here to indicate is_sorted = True for TableKeyBy
+    res = res.key_by(res.locus, res.alleles)
+
+    #res._tir.is_sorted = True #TODO Not sure what's going on with sorting, throwing assertion error.
 
     return (res, ht, just_before_grouping, just_after_grouping)
 
