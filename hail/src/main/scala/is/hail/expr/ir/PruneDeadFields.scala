@@ -1684,6 +1684,9 @@ object PruneDeadFields {
           else
             None
         })
+      case NDArrayMap(nd, valueName, body) =>
+        val nd2 = rebuildIR(nd, env, memo)
+        NDArrayMap(nd2, valueName, rebuildIR(body, env.bindEval(valueName, -nd2.typ.asInstanceOf[TNDArray].elementType), memo))
       case InsertFields(old, fields, fieldOrder) =>
         val depStruct = requestedType.asInstanceOf[TStruct]
         val depFields = depStruct.fieldNames.toSet
