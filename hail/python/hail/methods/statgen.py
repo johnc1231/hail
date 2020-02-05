@@ -525,6 +525,11 @@ def linear_regression_rows_nd(y, x, covariates, block_size=16, pass_through=()) 
         ht = ht.transmute(**{struct_root_name : ht[struct_root_name].map(lambda tup: hl.struct(**{dests[i]:tup[i] for i in range(len(dests))}))})
         return ht
 
+    # Given a hail array, get the mean of the nonmissing entries and return new array where the missing entries are the mean.
+    def mean_impute(hl_array):
+        non_missing_mean = hl.mean(hl_array, filter_missing=True)
+        return hl.map(lambda arr_entry: hl.if_else(hl.is_defined(arr_entry), arr_entry, non_missing_mean), hl_array)
+
     ht = mt._localize_entries(entries_field_name, sample_field_name)
 
     # probably a zip with index and filter
@@ -537,10 +542,12 @@ def linear_regression_rows_nd(y, x, covariates, block_size=16, pass_through=()) 
     ht = just_before_grouping.checkpoint("just_before_grouping_chk.mt", overwrite=True)
     ht = ht._group_within_partitions(block_size) # breaking point for show with filtering, idk why
     just_after_grouping = ht
-    # actually make it an ndarray
-    ht = ht.annotate(**{X_field_name: hl.nd.array(ht["grouped_fields"][entries_field_name]).T})
+
 
     # TODO: Almost right, except I am not dealing with missingness!
+    # Steps to deal with missingness:
+    # 1. Need to find the set of samples who have all y and cov fields defined.
+    # 2. Filter columns to only those samples.
     ht = ht.annotate_globals(__y_nd=hl.nd.array(ht[sample_field_name].map(lambda struct: hl.array([struct[y_name] for y_name in y_field_names]))))
     # TODO: When there are no covariates, can't call array.
     ht = ht.annotate_globals(__cov_nd=hl.nd.array(ht[sample_field_name].map(lambda struct: hl.array([struct[cov_name] for cov_name in cov_field_names]))))
@@ -549,6 +556,7 @@ def linear_regression_rows_nd(y, x, covariates, block_size=16, pass_through=()) 
     #if d < 1:
     #    raise FatalError(f"{n} samples and {k + 1} covariates (including x) implies ${d} degrees of freedom.")
 
+    ht = ht.annotate(**{X_field_name: hl.nd.array(hl.map(lambda row: mean_impute(row), ht["grouped_fields"][entries_field_name])).T})
     ht = ht.annotate_globals(n=hl.len(ht.globals[sample_field_name]["__y_0"]))
     ht = ht.annotate_globals(d=ht.n-k-1)
     ht = ht.annotate_globals(__cov_Qt=hl.if_else(k > 0, hl.nd.qr(ht.__cov_nd)[0].T, hl.nd.zeros((1, ht.n))))  # TODOD Why the hell does the zero matrix have 0 rows in Breeze? I'm probably handling this case wrong.
