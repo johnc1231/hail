@@ -506,9 +506,10 @@ def linear_regression_rows_nd(y, x, covariates, block_size=16, pass_through=()) 
     # TODO List:
     # Either before or after localizing, need to find the missing samples and delete them
     #   In the chained case, have to do this a bunch of times? Can't filter mutliple mts without recomputing?
+    #   No. In the chained case, what I want is for all of the different y based things to be arrays.
 
     def all_defined(struct_root, field_names):
-        return functools.reduce(lambda a, b: a & b, [struct_root[field_name] for field_name in field_names])
+        return functools.reduce(lambda a, b: a & hl.is_defined(b), [struct_root[field_name] for field_name in field_names], True)
 
     def nd_to_array(mat):
         if mat.ndim == 1:
@@ -532,22 +533,25 @@ def linear_regression_rows_nd(y, x, covariates, block_size=16, pass_through=()) 
 
     ht = mt._localize_entries(entries_field_name, sample_field_name)
 
-    # probably a zip with index and filter
-    #hl.zip_with_index(ht[sample_field_name]).filter(lambda y_and_cov_struct_with_index: all_defined(y_and_cov_struct_with_index[0], y_field_names + cov_field_names))
 
     # Now here, I want to transmute away the entries field name struct to get arrays
     ht = ht.transmute(**{entries_field_name: ht[entries_field_name][x_field_name]})
     just_before_grouping = ht
     # Now need to group everything
     ht = just_before_grouping.checkpoint("just_before_grouping_chk.mt", overwrite=True)
-    ht = ht._group_within_partitions(block_size) # breaking point for show with filtering, idk why
+    ht = ht._group_within_partitions(block_size)  # breaking point for show with filtering, idk why
     just_after_grouping = ht
 
 
-    # TODO: Almost right, except I am not dealing with missingness!
+    # TODO: Almost right, except I am not dealing with missingness for y and cov!
     # Steps to deal with missingness:
     # 1. Need to find the set of samples who have all y and cov fields defined.
     # 2. Filter columns to only those samples.
+    # probably a zip with index and filter
+    ys_and_covs_to_keep_with_indices = hl.zip_with_index(ht[sample_field_name]).filter(lambda struct_with_index: all_defined(struct_with_index[1], y_field_names + cov_field_names))
+    indices_to_keep = ys_and_covs_to_keep_with_indices.map(lambda pair: pair[0])
+    ys_and_covs_to_keep = ys_and_covs_to_keep_with_indices.map(lambda pair: pair[1])
+
     ht = ht.annotate_globals(__y_nd=hl.nd.array(ht[sample_field_name].map(lambda struct: hl.array([struct[y_name] for y_name in y_field_names]))))
     # TODO: When there are no covariates, can't call array.
     ht = ht.annotate_globals(__cov_nd=hl.nd.array(ht[sample_field_name].map(lambda struct: hl.array([struct[cov_name] for cov_name in cov_field_names]))))
