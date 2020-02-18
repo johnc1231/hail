@@ -695,3 +695,13 @@ def test_numpy_interop():
                           np.array([[6, 9], [10, 15]]))
     assert np.array_equal(hl.eval(np.array(b) @ hl.nd.array(a)),
                           np.array([[6, 9], [10, 15]]))
+
+
+@skip_unless_spark_backend()
+def test_mixed_ndarray_pipelines():
+    ht = hl.utils.range_table(10)
+    ht = ht.annotate(ones_square=hl.nd.ones((10, 10)))
+    ht = ht.annotate(bit_vector=hl.nd.array(hl.array([1, 0, 0, 0, 1, 1, 1, 0, 1, 0])))
+    ht = ht.annotate(ones_square_qr=hl.nd.qr(ht.ones_square))
+    ht = ht.annotate(ones_square_times_bit_vector=ht.ones_square @ ht.bit_vector)
+    ht._force_count()
