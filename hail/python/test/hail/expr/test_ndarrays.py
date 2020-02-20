@@ -704,4 +704,7 @@ def test_mixed_ndarray_pipelines():
     ht = ht.annotate(bit_vector=hl.nd.array(hl.array([1, 0, 0, 0, 1, 1, 1, 0, 1, 0])))
     ht = ht.annotate(ones_square_qr=hl.nd.qr(ht.ones_square))
     ht = ht.annotate(ones_square_times_bit_vector=ht.ones_square @ ht.bit_vector)
+    ht = ht.annotate(a=8)
+    ht = ht.annotate(map_of_matmul_of_maps=((ht.ones_square - ht.a) @ (ht.ones_square + (ht.ones_square * 8))) + hl.nd.array(hl.range(10)))
+    # Doesn't check correctness, just checks that every operation works.
     ht._force_count()
