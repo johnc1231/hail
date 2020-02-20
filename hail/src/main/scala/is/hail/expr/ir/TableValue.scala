@@ -38,7 +38,7 @@ object TableValue {
 }
 
 case class TableValue(typ: TableType, globals: BroadcastRow, rvd: RVD) {
-  if (typ.rowType != rvd.rowType)
+  if (!(typ.rowType isOfType rvd.rowType))
     throw new RuntimeException(s"row mismatch:\n  typ: ${ typ.rowType.parsableString() }\n  rvd: ${ rvd.rowType.parsableString() }")
   if (!rvd.typ.key.startsWith(typ.key))
     throw new RuntimeException(s"key mismatch:\n  typ: ${ typ.key }\n  rvd: ${ rvd.typ.key }")

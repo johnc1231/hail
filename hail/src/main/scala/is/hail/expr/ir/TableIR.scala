@@ -1016,6 +1016,8 @@ case class TableMapRows(child: TableIR, newRow: IR) extends TableIR {
           rv2
         }
       }
+      log.info(s"RVD Row type: ${tv.rvd.rowType._toPretty}")
+      log.info(s"Typ Row type: ${typ.rowType}")
 
       return tv.copy(
         typ = typ,
