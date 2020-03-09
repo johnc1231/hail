@@ -329,8 +329,9 @@ case class TableParallelize(rowsAndGlobal: IR, nPartitions: Option[Int] = None) 
     val rowPType = PType.canonical(ptype).asInstanceOf[PStruct].field("rows").typ.asInstanceOf[PArray].elementType.setRequired(true).asInstanceOf[PStruct]
     assert(rowPType.virtualType == typ.rowType)
     val rvd = ContextRDD.parallelize(hc.sc, rows, nPartitions)
-      .cmapPartitions((ctx, it) => it.toRegionValueIterator(ctx.region, rowPType))
+      .cmapPartitions((ctx, it) => it.copyToRegion(ctx.region, rowPType))
     TableValue(typ, BroadcastRow(ctx, globals, typ.globalType), RVD.unkeyed(rowPType, rvd))
+
   }
 }
 
@@ -930,10 +931,10 @@ case class TableMultiWayZipJoin(children: IndexedSeq[TableIR], fieldName: String
     val rvd = RVD(
       typ = RVDType(localNewRowType, typ.key),
       partitioner = newPartitioner,
-      crdd = ContextRDD.czipNPartitions(repartitionedRVDs.map(_.crdd.boundary)) { (ctx, its) =>
+      crdd = ContextRDD.czipNPartitions(repartitionedRVDs.map(_.crdd.toCRDDRegionValue.boundary)) { (ctx, its) =>
         val orvIters = its.map(it => OrderedRVIterator(localRVDType, it, ctx))
         rvMerger(ctx, OrderedRVIterator.multiZipJoin(orvIters))
-      })
+      }.toCRDDPtr)
 
     val newGlobals = BroadcastRow(ctx,
       Row(childValues.map(_.globals.javaValue)),
@@ -1616,7 +1617,6 @@ case class TableKeyByAndAggregate(
         val globals = globalsBc.value.readRegionValue(partRegion)
         val annotate = makeAnnotate(i, partRegion)
 
-        val rv = RegionValue(region)
         it.map { case (key, aggs) =>
           rvb.set(region)
           rvb.start(newRowType)
@@ -1627,12 +1627,11 @@ case class TableKeyByAndAggregate(
             i += 1
           }
 
-          val aggOff = deserialize(rv.region, aggs)
-          annotate.setAggState(rv.region, aggOff)
+          val aggOff = deserialize(region, aggs)
+          annotate.setAggState(region, aggOff)
           rvb.addAllFields(rTyp, region, annotate(region, globals))
           rvb.endStruct()
-          rv.setOffset(rvb.end())
-          rv
+          rvb.end()
         }
       })
 
@@ -1811,7 +1810,7 @@ case class TableOrderBy(child: TableIR, sortFields: IndexedSeq[SortField]) exten
     val codec = TypedCodecSpec(prev.rvd.rowPType, BufferSpec.wireSpec)
     val rdd = prev.rvd.keyedEncodedRDD(codec, sortFields.map(_.field)).sortBy(_._1)(ord, act)
     val (rowPType: PStruct, orderedCRDD) = codec.decodeRDD(rowType, rdd.map(_._2))
-    TableValue(typ, prev.globals, RVD.unkeyed(rowPType, orderedCRDD.toCRDDRegionValue))
+    TableValue(typ, prev.globals, RVD.unkeyed(rowPType, orderedCRDD))
   }
 }
 
@@ -1943,7 +1942,7 @@ case class TableGroupWithinPartitions(child: TableIR, n: Int) extends TableIR {
           }
           rvb.endArray()
           rvb.endStruct()
-          rvb.resultPtr()
+          rvb.end()
         }
       }
     }
