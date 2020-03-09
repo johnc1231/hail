@@ -1013,24 +1013,22 @@ case class TableMapRows(child: TableIR, newRow: IR) extends TableIR {
         else
           null
 
-      val itF = { (i: Int, ctx: RVDContext, it: Iterator[RegionValue]) =>
+      val itF = { (i: Int, ctx: RVDContext, it: Iterator[Long]) =>
         val globalRegion = ctx.partitionRegion
         val globals = if (rowIterationNeedsGlobals)
           globalsBc.value.readRegionValue(globalRegion)
         else
           0
 
-        val rv2 = RegionValue()
         val newRow = f(i, globalRegion)
-        it.map { rv =>
-          rv2.set(rv.region, newRow(rv.region, globals, rv.offset))
-          rv2
+        it.map { ptr =>
+          newRow(ctx.r, globals, ptr)
         }
       }
 
       return tv.copy(
         typ = typ,
-        rvd = tv.rvd.mapPartitionsWithIndex(RVDType(rTyp.asInstanceOf[PStruct], typ.key), itF))
+        rvd = tv.rvd.mapPartitionsWithIndex(RVDType(rTyp.asInstanceOf[PStruct], typ.key))(itF))
     }
 
     val physicalAggs = extracted.getPhysicalAggs(
@@ -1217,8 +1215,8 @@ case class TableMapRows(child: TableIR, newRow: IR) extends TableIR {
         val seq = eltSeqF(i, globalRegion)
 
         seq.setAggState(aggRegion, read(aggRegion, initAgg))
-        it.foreach { rv =>
-          seq(rv.region, globals, rv.offset)
+        it.foreach { ptr =>
+          seq(ctx.region, globals, ptr)
           ctx.region.clear()
         }
         Iterator.single(write(aggRegion, seq.getAggOffset()))
@@ -1244,7 +1242,7 @@ case class TableMapRows(child: TableIR, newRow: IR) extends TableIR {
     val bcFS = HailContext.get.fsBc
 
     // 4. load in partStarts, calculate newRow based on those results.
-    val itF = { (i: Int, ctx: RVDContext, filePosition: Long, it: Iterator[RegionValue]) =>
+    val itF = { (i: Int, ctx: RVDContext, filePosition: Long, it: Iterator[Long]) =>
       val globalRegion = ctx.partitionRegion
       val globals = if (rowIterationNeedsGlobals || scanSeqNeedsGlobals)
         globalsBc.value.readRegionValue(globalRegion)
@@ -1271,19 +1269,18 @@ case class TableMapRows(child: TableIR, newRow: IR) extends TableIR {
       val seq = eltSeqF(i, globalRegion)
       var aggOff = read(aggRegion, partitionAggs)
 
-      it.map { rv =>
+      it.map { ptr =>
         newRow.setAggState(aggRegion, aggOff)
-        val off = newRow(rv.region, globals, rv.offset)
+        val off = newRow(ctx.region, globals, ptr)
         seq.setAggState(aggRegion, newRow.getAggOffset())
-        seq(rv.region, globals, rv.offset)
+        seq(ctx.region, globals, ptr)
         aggOff = seq.getAggOffset()
-        rv.setOffset(off)
-        rv
+        off
       }
     }
     tv.copy(
       typ = typ,
-      rvd = tv.rvd.mapPartitionsWithIndexAndValue(RVDType(rTyp.asInstanceOf[PStruct], typ.key), partitionIndices, itF))
+      rvd = tv.rvd.mapPartitionsWithIndexAndValue(RVDType(rTyp.asInstanceOf[PStruct], typ.key), partitionIndices)(itF))
    }
 }
 
@@ -1385,21 +1382,21 @@ case class TableExplode(child: TableIR, path: IndexedSeq[String]) extends TableI
         val rv2 = RegionValue(region2)
         val lenF = l(i, globalRegion)
         val rowF = f(i, globalRegion)
-        it.flatMap { rv =>
-          val len = lenF(rv.region, rv.offset)
-          new Iterator[RegionValue] {
+        it.flatMap { ptr =>
+          val len = lenF(ctx.region, ptr)
+          new Iterator[Long] {
             private[this] var i = 0
 
             def hasNext: Boolean = i < len
 
-            def next(): RegionValue = {
-              rv2.setOffset(rowF(rv2.region, rv.offset, i))
+            def next(): Long = {
+              val ret = rowF(ctx.region, ptr, i)
               i += 1
-              rv2
+              ret
             }
           }
         }
-      }))
+      })
   }
 }
 
@@ -1579,8 +1576,8 @@ case class TableKeyByAndAggregate(
         val globals = globalsBc.value.readRegionValue(partRegion)
         val makeKey = {
           val f = makeKeyF(i, partRegion)
-          rv: RegionValue => {
-            val keyOff = f(rv.region, rv.offset, globals)
+          ptr: Long => {
+            val keyOff = f(ctx.region, ptr, globals)
             SafeRow.read(localKeyPType, keyOff).asInstanceOf[Row]
           }
         }
@@ -1591,9 +1588,9 @@ case class TableKeyByAndAggregate(
 
         val seqOp = {
           val f = makeSeq(i, partRegion)
-          (rv: RegionValue, agg: RegionValue) => {
+          (ptr: Long, agg: RegionValue) => {
             f.setAggState(agg.region, agg.offset)
-            f(rv.region, globals, rv.offset)
+            f(ctx.region, globals, ptr)
             agg.setOffset(f.getAggOffset())
           }
         }
@@ -1603,7 +1600,7 @@ case class TableKeyByAndAggregate(
           a
         }
 
-        new BufferedAggregatorIterator[RegionValue, RegionValue, Array[Byte], Row](
+        new BufferedAggregatorIterator[Long, RegionValue, Array[Byte], Row](
           it,
           makeAgg,
           makeKey,
@@ -1707,7 +1704,7 @@ case class TableAggregateByKey(child: TableIR, expr: IR) extends TableIR {
 
     val localChildRowType = prevRVD.rowPType
     val keyIndices = prev.typ.keyFieldIdx
-    val keyOrd = prevRVD.typ.kRowOrd.toRVOrdering
+    val keyOrd = prevRVD.typ.kRowOrd
     val globalsBc = prev.globals.broadcast
 
     val newRVDType = prevRVD.typ.copy(rowType = rowType)
@@ -1717,7 +1714,6 @@ case class TableAggregateByKey(child: TableIR, expr: IR) extends TableIR {
       .boundary
       .mapPartitionsWithIndex(newRVDType, { (i, ctx, it) =>
         val partRegion = ctx.partitionRegion
-
         val globalsOff = globalsBc.value.readRegionValue(partRegion)
 
         val initialize = makeInit(i, partRegion)
@@ -1726,48 +1722,46 @@ case class TableAggregateByKey(child: TableIR, expr: IR) extends TableIR {
 
         val aggRegion = ctx.freshRegion
 
-        new Iterator[RegionValue] {
+        new Iterator[Long] {
           var isEnd = false
-          var current: RegionValue = _
+          var current: Long = 0
           val rowKey: WritableRegionValue = WritableRegionValue(keyType, ctx.freshRegion)
           val consumerRegion: Region = ctx.region
           val newRV = RegionValue(consumerRegion)
 
           def hasNext: Boolean = {
-            if (isEnd || (current == null && !it.hasNext)) {
+            if (isEnd || (current == 0 && !it.hasNext)) {
               isEnd = true
               return false
             }
-            if (current == null)
+            if (current == 0)
               current = it.next()
             true
           }
 
-          def next(): RegionValue = {
+          def next(): Long = {
             if (!hasNext)
               throw new java.util.NoSuchElementException()
 
-            rowKey.setSelect(localChildRowType, keyIndices, current)
-            val region = current.region
+            rowKey.setSelect(localChildRowType, keyIndices, ctx.r, current)
 
             aggRegion.clear()
             initialize.newAggState(aggRegion)
-            initialize(region, globalsOff)
+            initialize(ctx.r, globalsOff)
             sequence.setAggState(aggRegion, initialize.getAggOffset())
 
             do {
-              val region = current.region
-              sequence(region,
+              sequence(ctx.r,
                 globalsOff,
-                current.offset)
-              current = null
-            } while (hasNext && keyOrd.equiv(rowKey.value, current))
+                current)
+              current = 0
+            } while (hasNext && keyOrd.equiv(rowKey.value.offset, current))
             newRowF.setAggState(aggRegion, sequence.getAggOffset())
-            newRV.setOffset(newRowF(consumerRegion, globalsOff, rowKey.offset))
-            newRV
+
+            newRowF(consumerRegion, globalsOff, rowKey.offset)
           }
         }
-      })
+      }
 
     prev.copy(rvd = newRVD, typ = typ)
   }
@@ -1923,27 +1917,25 @@ case class TableGroupWithinPartitions(child: TableIR, n: Int) extends TableIR {
     val keyIndices = child.typ.keyFieldIdx
 
     val blockSize = n
-    val newRVD = prevRVD.mapPartitionsWithIndex(newRVDType, { (int, ctx, it) =>
-      val targetRegion = ctx.region
+    val newRVD = prevRVD.mapPartitions(newRVDType) { (ctx, it) =>
+      val rvb = ctx.rvb
 
-      new Iterator[RegionValue] {
+      new Iterator[Long] {
         override def hasNext: Boolean = {
           it.hasNext
         }
 
-        override def next(): RegionValue = {
+        override def next(): Long = {
           if (!hasNext)
             throw new java.util.NoSuchElementException()
 
           val offsetArray = new Array[Long](blockSize) // May be longer than the amount of data
           var childIterationCount = 0
           while (it.hasNext && childIterationCount != blockSize) {
-            val nextRV = it.next()
-            targetRegion.addReferenceTo(nextRV.region)
-            offsetArray(childIterationCount) = nextRV.offset
+            val nextPtr = it.next()
+            offsetArray(childIterationCount) = nextPtr
             childIterationCount += 1
           }
-          val rvb = new RegionValueBuilder(targetRegion)
           rvb.start(rowType)
           rvb.startStruct()
           rvb.addFields(prevRowType, ctx.region, offsetArray(0), keyIndices)
@@ -1953,10 +1945,10 @@ case class TableGroupWithinPartitions(child: TableIR, n: Int) extends TableIR {
           }
           rvb.endArray()
           rvb.endStruct()
-          rvb.result()
+          rvb.resultPtr()
         }
       }
-    })
+    }
 
     prev.copy(rvd = newRVD, typ = typ)
   }
