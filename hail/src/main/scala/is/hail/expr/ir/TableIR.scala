@@ -1395,7 +1395,7 @@ case class TableExplode(child: TableIR, path: IndexedSeq[String]) extends TableI
             }
           }
         }
-      })
+      }))
   }
 }
 
@@ -1758,7 +1758,7 @@ case class TableAggregateByKey(child: TableIR, expr: IR) extends TableIR {
             newRowF(consumerRegion, globalsOff, rowKey.offset)
           }
         }
-      }
+      })
 
     prev.copy(rvd = newRVD, typ = typ)
   }
