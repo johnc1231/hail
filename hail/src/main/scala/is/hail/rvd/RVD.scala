@@ -1025,7 +1025,7 @@ class RVD(
   ): RVD = RVD(
     newTyp,
     partitioner,
-    crdd.toCRDDRegionValue.boundary.czip(that.crdd.toCRDDRegionValue.boundary)(zipper).toCRDDPtr)
+    crdd.toCRDDRegionValue.czip(that.crdd.toCRDDRegionValue)(zipper).toCRDDPtr)
 
   def zipPartitions(
     newTyp: RVDType,
@@ -1034,7 +1034,7 @@ class RVD(
   ): RVD = RVD(
     newTyp,
     partitioner,
-    crdd.toCRDDRegionValue.boundary.czipPartitions(that.crdd.toCRDDRegionValue.boundary)(zipper).toCRDDPtr)
+    crdd.toCRDDRegionValue.czipPartitions(that.crdd.toCRDDRegionValue)(zipper).toCRDDPtr)
 
   def zipPartitionsWithIndex(
     newTyp: RVDType,
@@ -1043,7 +1043,7 @@ class RVD(
   ): RVD = RVD(
     newTyp,
     partitioner,
-    crdd.toCRDDRegionValue.boundary.czipPartitionsWithIndex(that.crdd.toCRDDRegionValue.boundary)(zipper).toCRDDPtr)
+    crdd.toCRDDRegionValue.czipPartitionsWithIndex(that.crdd.toCRDDRegionValue)(zipper).toCRDDPtr)
 
   // New key type must be prefix of left key type. 'joinKey' must be prefix of
   // both left key and right key. 'zipper' must take all output key values from
@@ -1068,8 +1068,8 @@ class RVD(
     RVD(
       typ = newTyp,
       partitioner = left.partitioner,
-      crdd = left.crdd.toCRDDRegionValue.boundary.czipPartitions(
-        RepartitionedOrderedRDD2(that, this.partitioner.coarsenedRangeBounds(joinKey)).toCRDDRegionValue.boundary
+      crdd = left.crdd.toCRDDRegionValue.czipPartitions(
+        RepartitionedOrderedRDD2(that, this.partitioner.coarsenedRangeBounds(joinKey)).toCRDDRegionValue
       )(zipper).toCRDDPtr)
   }
 
@@ -1123,7 +1123,7 @@ class RVD(
     RVD(
       typ = newTyp,
       partitioner = partitioner,
-      crdd = crdd.toCRDDRegionValue.boundary.czipPartitions(rightCRDD.toCRDDRegionValue.boundary)(f).toCRDDPtr)
+      crdd = crdd.toCRDDRegionValue.czipPartitions(rightCRDD.toCRDDRegionValue)(f).toCRDDPtr)
   }
 
   // Private
