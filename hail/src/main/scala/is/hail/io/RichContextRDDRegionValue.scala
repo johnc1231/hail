@@ -254,7 +254,7 @@ class RichContextRDDRegionValue(val crdd: ContextRDD[RegionValue]) extends AnyVa
 
   def toCRDDPtr: ContextRDD[Long] =
     crdd.cmap { (consumerCtx, rv) =>
-      consumerCtx.region.addReferenceTo(rv.region)
+      //consumerCtx.region.addReferenceTo(rv.region)
       rv.offset
     }
 
