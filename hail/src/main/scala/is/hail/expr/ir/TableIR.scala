@@ -1239,7 +1239,7 @@ case class TableExplode(child: TableIR, path: IndexedSeq[String]) extends TableI
     )
     TableValue(typ,
       prev.globals,
-      prev.rvd.boundary.mapPartitionsWithIndex(rvdType, { (i, ctx, it) =>
+      prev.rvd.boundary.mapPartitionsWithIndex(rvdType) { (i, ctx, it) =>
         val region2 = ctx.region
         val globalRegion = ctx.partitionRegion
         val rv2 = RegionValue(region2)
@@ -1259,7 +1259,7 @@ case class TableExplode(child: TableIR, path: IndexedSeq[String]) extends TableI
             }
           }
         }
-      }))
+      })
   }
 }
 
@@ -1562,7 +1562,7 @@ case class TableAggregateByKey(child: TableIR, expr: IR) extends TableIR {
     val newRVD = prevRVD
       .repartition(prevRVD.partitioner.strictify, ctx)
       .boundary
-      .mapPartitionsWithIndex(newRVDType, { (i, ctx, it) =>
+      .mapPartitionsWithIndex(newRVDType) { (i, ctx, it) =>
         val partRegion = ctx.partitionRegion
         val globalsOff = globalsBc.value.readRegionValue(partRegion)
 
@@ -1611,7 +1611,7 @@ case class TableAggregateByKey(child: TableIR, expr: IR) extends TableIR {
             newRowF(consumerRegion, globalsOff, false, rowKey.offset, false)
           }
         }
-      })
+      }
 
     prev.copy(rvd = newRVD, typ = typ)
   }
