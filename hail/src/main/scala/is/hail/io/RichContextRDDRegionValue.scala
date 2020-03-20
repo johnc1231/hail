@@ -197,31 +197,6 @@ class RichContextRDDLong(val crdd: ContextRDD[Long]) extends AnyVal {
       }
     }
 
-  def cleanupRegions: ContextRDD[Long] = {
-    crdd.cmapPartitionsAndContext { (ctx, part) =>
-      val it = part.flatMap(_ (ctx))
-      new Iterator[Long]() {
-        private[this] var cleared: Boolean = false
-
-        def hasNext: Boolean = {
-          if (!cleared) {
-            cleared = true
-            ctx.region.clear()
-          }
-          it.hasNext
-        }
-
-        def next: Long = {
-          if (!cleared) {
-            ctx.region.clear()
-          }
-          cleared = false
-          it.next
-        }
-      }
-    }
-  }
-
   def toCRDDRegionValue: ContextRDD[RegionValue] =
     boundary.cmapPartitionsWithContext((ctx, part) => {
       val rv = RegionValue(ctx.r)
@@ -285,31 +260,6 @@ class RichContextRDDRegionValue(val crdd: ContextRDD[RegionValue]) extends AnyVa
       }
       rv.offset
     }
-
-  def cleanupRegions: ContextRDD[RegionValue] = {
-    crdd.cmapPartitionsAndContext { (ctx, part) =>
-      val it = part.flatMap(_ (ctx))
-      new Iterator[RegionValue]() {
-        private[this] var cleared: Boolean = false
-
-        def hasNext: Boolean = {
-          if (!cleared) {
-            cleared = true
-            ctx.region.clear()
-          }
-          it.hasNext
-        }
-
-        def next: RegionValue = {
-          if (!cleared) {
-            ctx.region.clear()
-          }
-          cleared = false
-          it.next
-        }
-      }
-    }
-  }
 
   def toRows(rowType: PStruct): RDD[Row] = {
     crdd.run.map(rv => SafeRow(rowType, rv.offset))
