@@ -1413,6 +1413,14 @@ def test_group_within_partitions():
     assert filter_then_group[0] == hl.Struct(idx=0, grouped_fields=[hl.Struct(idx=0), hl.Struct(idx=2), hl.Struct(idx=4), hl.Struct(idx=6), hl.Struct(idx=8)])
 
 
+def test_group_within_partitions_after_explode():
+    t = hl.utils.range_table(10).repartition(2)
+    t = t.annotate(arr=hl.range(0, 20))
+    t = t.explode(t.arr)
+    t = t._group_within_partitions(10)
+    assert(t._force_count() == 20)
+
+
 def test_map_filter_region_memory():
     high_mem_table = hl.utils.range_table(30).naive_coalesce(1).annotate(big_array=hl.zeros(100_000_000))
     high_mem_table = high_mem_table.filter(high_mem_table.idx % 2 == 0)
