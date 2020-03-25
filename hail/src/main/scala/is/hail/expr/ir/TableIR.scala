@@ -1738,7 +1738,7 @@ case class TableAggregateByKey(child: TableIR, expr: IR) extends TableIR {
             if (!hasNext)
               throw new java.util.NoSuchElementException()
 
-            rowKey.setSelect(localChildRowType, keyIndices, ctx.r, current)
+            rowKey.setSelect(localChildRowType, keyIndices, current, true)
 
             aggRegion.clear()
             initialize.newAggState(aggRegion)
