@@ -1463,6 +1463,25 @@ def test_group_within_partitions_after_explode():
     t = t._group_within_partitions("grouped_fields", 10)
     assert(t._force_count() == 20)
 
+def test_group_within_partitions_dropping_loci():
+    gt_mt = hl.import_vcf(resource('small-gt.vcf'))
+    pheno_t = hl.read_table(resource('small-pheno.t'))
+    gt_mt = gt_mt.annotate_cols(**pheno_t[gt_mt.s])
+
+    mt = gt_mt._select_all(col_exprs={"y": gt_mt.phenotype},
+                           row_exprs={},
+                           col_key=[],
+                           entry_exprs={"x": gt_mt.GT.n_alt_alleles()})
+
+    mt.describe()
+    entries_field_name = "efn"
+    samples_field_name = "sfn"
+    ht = mt._localize_entries(entries_field_name, samples_field_name)
+    ht = ht.transmute(**{entries_field_name: ht[entries_field_name].x})
+    ht = ht._group_within_partitions("grouped_fields", 16)
+    ht.show()
+    assert True
+
 
 def test_range_annotate_range():
     # tests left join right distinct requiredness
