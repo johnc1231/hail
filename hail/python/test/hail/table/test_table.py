@@ -1478,6 +1478,7 @@ def test_group_within_partitions_dropping_loci():
     samples_field_name = "sfn"
     ht = mt._localize_entries(entries_field_name, samples_field_name)
     ht = ht.transmute(**{entries_field_name: ht[entries_field_name].x})
+    #ht = ht.checkpoint("testing_locus_drop")
     ht = ht._group_within_partitions("grouped_fields", 16)
     ht.show()
     assert True

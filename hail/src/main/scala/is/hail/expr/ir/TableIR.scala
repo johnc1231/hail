@@ -2101,22 +2101,26 @@ case class TableGroupWithinPartitions(child: TableIR, name: String, n: Int) exte
     val keyIndices = child.typ.keyFieldIdx
 
     val blockSize = n
-    val newRVD = prevRVD.mapPartitions(newRVDType) { (ctx, it) =>
-      val rvb = ctx.rvb
+    val newRVD = prevRVD.mapPartitionsWithContext(newRVDType) { (ctx, it) =>
+      val producerCtx = ctx.freshContext()
+      producerCtx.region.addReferenceTo(ctx.region)
+      val rvb = producerCtx.rvb
 
       new Iterator[Long] {
+        val trueIt = it(producerCtx)
         override def hasNext: Boolean = {
-          it.hasNext
+          trueIt.hasNext
         }
 
         override def next(): Long = {
           if (!hasNext)
             throw new java.util.NoSuchElementException()
+          //producerCtx.r.clear()
 
           val offsetArray = new Array[Long](blockSize) // May be longer than the amount of data
           var childIterationCount = 0
-          while (it.hasNext && childIterationCount != blockSize) {
-            val nextPtr = it.next()
+          while (trueIt.hasNext && childIterationCount != blockSize) {
+            val nextPtr = trueIt.next()
             offsetArray(childIterationCount) = nextPtr
             childIterationCount += 1
           }
