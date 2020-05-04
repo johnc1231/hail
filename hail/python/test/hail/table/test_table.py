@@ -1483,6 +1483,14 @@ def test_group_within_partitions_dropping_loci():
     ht.show()
     assert True
 
+def test_group_within_partitions_simple_dropping_loci():
+    gt_mt = hl.import_vcf(resource('small-gt.vcf'))
+    gt_mt.describe()
+    ht = gt_mt.rows()
+    ht = ht._group_within_partitions("grouped_fields", 16)
+    ht.show()
+    assert True
+
 
 def test_range_annotate_range():
     # tests left join right distinct requiredness

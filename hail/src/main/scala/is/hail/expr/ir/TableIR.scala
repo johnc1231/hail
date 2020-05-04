@@ -2102,12 +2102,12 @@ case class TableGroupWithinPartitions(child: TableIR, name: String, n: Int) exte
 
     val blockSize = n
     val newRVD = prevRVD.mapPartitionsWithContext(newRVDType) { (ctx, it) =>
-      val producerCtx = ctx.freshContext()
-      producerCtx.region.addReferenceTo(ctx.region)
-      val rvb = producerCtx.rvb
+      //val producerCtx = ctx.freshContext()
+      //val rvb = producerCtx.rvb
+      val rvb = ctx.rvb
 
       new Iterator[Long] {
-        val trueIt = it(producerCtx)
+        val trueIt = it(ctx)
         override def hasNext: Boolean = {
           trueIt.hasNext
         }
