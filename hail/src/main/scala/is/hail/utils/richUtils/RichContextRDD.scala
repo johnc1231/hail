@@ -21,19 +21,22 @@ class RichContextRDD[T: ClassTag](crdd: ContextRDD[T]) {
     crdd.cmapPartitionsAndContext { (ctx, part) =>
       val it = part.flatMap(_ (ctx))
       new Iterator[T]() {
-        private[this] var cleared: Boolean = false
+        private[this] var cleared: Boolean = true
+        //ctx.region.locked = true
 
         def hasNext: Boolean = {
-          if (!cleared) {
-            cleared = true
-            ctx.region.clear()
-          }
+//          if (!cleared) {
+//            cleared = true
+//            ctx.region.clear()
+//          }
           it.hasNext
         }
 
         def next: T = {
           if (!cleared) {
+            ctx.region.locked = false
             ctx.region.clear()
+            //ctx.region.locked = true
           }
           cleared = false
           it.next

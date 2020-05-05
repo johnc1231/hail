@@ -1485,10 +1485,12 @@ def test_group_within_partitions_dropping_loci():
 
 def test_group_within_partitions_simple_dropping_loci():
     gt_mt = hl.import_vcf(resource('small-gt.vcf'))
-    gt_mt.describe()
+    #gt_mt = gt_mt.checkpoint("timcheck.mt", overwrite=True)
     ht = gt_mt.rows()
     ht = ht._group_within_partitions("grouped_fields", 16)
-    ht.show()
+    #ht._force_count()
+    #ht.show()
+    ht.collect()
     assert True
 
 

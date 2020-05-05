@@ -81,6 +81,7 @@ class RVD(
   }
 
   def stabilize(ctx: ExecuteContext, enc: AbstractTypedCodecSpec): RDD[Array[Byte]] = {
+    println("Stabilizing")
     val makeEnc = enc.buildEncoder(ctx, rowPType)
     crdd.mapPartitions(RegionValue.toBytes(makeEnc, _)).run
   }
@@ -710,13 +711,18 @@ class RVD(
   // Collecting
 
   def collect(execCtx: ExecuteContext): Array[Row] = {
+    println("Collecting")
     val enc = TypedCodecSpec(rowPType, BufferSpec.wireSpec)
     val encodedData = collectAsBytes(execCtx, enc)
+    println("CollectedAsBytes")
     val (pType: PStruct, dec) = enc.buildDecoder(execCtx, rowType)
     Region.scoped { region =>
+      println("In a scoped")
       RegionValue.fromBytes(dec, region, encodedData.iterator)
         .map { ptr =>
+          println("Have a ptr.")
           val row = SafeRow(pType, ptr)
+          println("Collecting about to clear")
           region.clear()
           row
         }.toArray

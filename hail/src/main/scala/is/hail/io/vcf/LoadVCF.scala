@@ -1286,6 +1286,7 @@ object LoadVCF {
     lines.cmapPartitions { (ctx, it) =>
       new Iterator[Long] {
         val rvb = ctx.rvb
+        println("Parsing a VCF")
         var ptr: Long = 0
 
         val context: C = makeContext()

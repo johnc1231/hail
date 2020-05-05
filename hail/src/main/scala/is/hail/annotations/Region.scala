@@ -359,6 +359,13 @@ object Region {
 
 final class Region protected[annotations](var blockSize: Region.Size, var pool: RegionPool, var memory: RegionMemory = null) extends AutoCloseable {
 
+  val creationStackTrace = Thread.currentThread().getStackTrace.toIndexedSeq
+  val creationStackTraceString = creationStackTrace.foldLeft(""){case (s, ste) =>
+    s + ste.toString + "\n"
+  }
+
+  var locked = false
+
   def isValid(): Boolean = memory != null
 
   def allocate(n: Long): Long = {
@@ -370,6 +377,7 @@ final class Region protected[annotations](var blockSize: Region.Size, var pool: 
   }
 
   def invalidate(): Unit = {
+    assert(!locked)
     if (memory != null) {
       memory.release()
       memory = null
@@ -377,6 +385,7 @@ final class Region protected[annotations](var blockSize: Region.Size, var pool: 
   }
 
   def clear(): Unit = {
+    assert(!locked)
     if (memory.getReferenceCount == 1) {
       memory.clear()
     } else {

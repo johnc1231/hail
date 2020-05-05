@@ -2102,9 +2102,9 @@ case class TableGroupWithinPartitions(child: TableIR, name: String, n: Int) exte
 
     val blockSize = n
     val newRVD = prevRVD.mapPartitionsWithContext(newRVDType) { (ctx, it) =>
-      //val producerCtx = ctx.freshContext()
-      //val rvb = producerCtx.rvb
-      val rvb = ctx.rvb
+      println(ctx.region.creationStackTraceString)
+      val neverCleared = ctx.freshContext()
+      val rvb = ctx.rvb//neverCleared.rvb
 
       new Iterator[Long] {
         val trueIt = it(ctx)
@@ -2115,12 +2115,12 @@ case class TableGroupWithinPartitions(child: TableIR, name: String, n: Int) exte
         override def next(): Long = {
           if (!hasNext)
             throw new java.util.NoSuchElementException()
-          //producerCtx.r.clear()
 
           val offsetArray = new Array[Long](blockSize) // May be longer than the amount of data
           var childIterationCount = 0
           while (trueIt.hasNext && childIterationCount != blockSize) {
             val nextPtr = trueIt.next()
+            println(nextPtr)
             offsetArray(childIterationCount) = nextPtr
             childIterationCount += 1
           }
