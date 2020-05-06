@@ -2120,7 +2120,7 @@ case class TableGroupWithinPartitions(child: TableIR, name: String, n: Int) exte
           var childIterationCount = 0
           while (trueIt.hasNext && childIterationCount != blockSize) {
             val nextPtr = trueIt.next()
-            println(nextPtr)
+            println(s"TableGroup: inner row #$childIterationCount at $nextPtr")
             offsetArray(childIterationCount) = nextPtr
             childIterationCount += 1
           }
@@ -2131,9 +2131,12 @@ case class TableGroupWithinPartitions(child: TableIR, name: String, n: Int) exte
           (0 until childIterationCount) foreach { rvArrayIndex =>
             rvb.addRegionValue(prevRowType, ctx.region, offsetArray(rvArrayIndex))
           }
+          val endingPtr = rvb.currentOffset()
           rvb.endArray()
           rvb.endStruct()
-          rvb.end()
+          val startingPtr = rvb.end()
+          println(s"TableGroupRows: full row starts at: $startingPtr, ends at: $endingPtr")
+          startingPtr
         }
       }
     }

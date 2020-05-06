@@ -58,6 +58,7 @@ object Region {
   def storeBoolean(addr: Long, v: Boolean): Unit = Memory.storeByte(addr, if (v) 1 else 0)
 
   def loadBytes(addr: Long, n: Int): Array[Byte] = {
+    //println(s"Trying to load from address ${addr}")
     val a = new Array[Byte](n)
     Memory.copyToArray(a, 0, addr, n)
     a

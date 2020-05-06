@@ -36,7 +36,7 @@ object RegionValue {
 
   def toBytes(makeEnc: OutputStream => Encoder, rvs: Iterator[Long]): Iterator[Array[Byte]] = {
     val bae = new ByteArrayEncoder(makeEnc)
-    rvs.map(bae.regionValueToBytes)
+    rvs.map{lng => println(s"toBytes: $lng"); bae.regionValueToBytes(lng)}
   }
 }
 

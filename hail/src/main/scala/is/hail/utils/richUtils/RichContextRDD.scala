@@ -35,6 +35,7 @@ class RichContextRDD[T: ClassTag](crdd: ContextRDD[T]) {
         def next: T = {
           if (!cleared) {
             ctx.region.locked = false
+            println("Clearing region in cleanup")
             ctx.region.clear()
             //ctx.region.locked = true
           }

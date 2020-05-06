@@ -29,6 +29,7 @@ final class CompiledEncoder(out: OutputBuffer, f: () => EncoderAsmFunction) exte
 
   private[this] val compiled = f()
   def writeRegionValue(offset: Long) {
+    println(s"CompiledEncoder.writeRegionValue: $offset")
     compiled(offset, out)
   }
 

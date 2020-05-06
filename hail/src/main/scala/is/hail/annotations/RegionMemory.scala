@@ -234,4 +234,9 @@ final class RegionMemory(pool: RegionPool) extends AutoCloseable {
     r.release()
     references.update(idx, null)
   }
+
+  def containsAddress(addr: Long): Boolean = {
+
+    true
+  }
 }

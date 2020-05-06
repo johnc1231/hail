@@ -240,6 +240,7 @@ final class BlockingOutputBuffer(blockSize: Int, out: OutputBlockBuffer) extends
 
   def writeBytes(addr0: Long, n0: Int) {
     assert(n0 >= 0)
+    //println(s"Writing bytes starting with $addr0")
     var addr = addr0
     var n = n0
 
