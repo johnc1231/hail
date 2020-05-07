@@ -412,8 +412,9 @@ final case class PCanonicalArray(elementType: PType, required: Boolean = false) 
 
   def _copyFromAddress(region: Region, srcPType: PType, srcAddress: Long, deepCopy: Boolean): Long = {
     val srcArrayT = srcPType.asInstanceOf[PArray]
-
+    println(s"_copyFromAddress: deepCopy = $deepCopy, srcAddress = $srcAddress")
     if (equalModuloRequired(srcArrayT)) {
+      println("equalModuloRequired = True")
       if (!deepCopy)
         return srcAddress
 

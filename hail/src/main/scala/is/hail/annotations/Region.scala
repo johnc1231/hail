@@ -73,8 +73,16 @@ object Region {
   def storeBytes(addr: Long, src: Array[Byte], srcOff: Long, n: Long): Unit =
     Memory.copyFromArray(addr, src, srcOff, n)
 
-  def copyFrom(srcOff: Long, dstOff: Long, n: Long): Unit =
+  var doNotOverwrite: Long = 0L
+  def copyFrom(srcOff: Long, dstOff: Long, n: Long): Unit = {
+    val s = s"Region.copyFrom: doNotOverwrite = $doNotOverwrite dstOff = $dstOff, dstOff + n = ${dstOff + n}"
+    println(s)
+    if (dstOff <= doNotOverwrite && dstOff + n > doNotOverwrite) {
+      System.out.flush()
+      assert(false, s)
+    }
     Memory.memcpy(dstOff, srcOff, n)
+  }
 
   def setMemory(offset: Long, size: Long, b: Byte): Unit = {
     var x = 0L
@@ -386,6 +394,7 @@ final class Region protected[annotations](var blockSize: Region.Size, var pool: 
   }
 
   def clear(): Unit = {
+    println("Clearing region")
     assert(!locked)
     if (memory.getReferenceCount == 1) {
       memory.clear()
@@ -396,6 +405,7 @@ final class Region protected[annotations](var blockSize: Region.Size, var pool: 
   }
 
   def close(): Unit = {
+    println("Closing Region")
     invalidate()
   }
 
@@ -404,6 +414,7 @@ final class Region protected[annotations](var blockSize: Region.Size, var pool: 
   }
 
   def move(r: Region): Unit = {
+    println("Moving region")
     r.addReferenceTo(this)
     this.clear()
   }

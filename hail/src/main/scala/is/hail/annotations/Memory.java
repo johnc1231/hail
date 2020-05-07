@@ -165,7 +165,7 @@ public final class Memory {
     }
 
     public static void copyToArray(byte[] dst, long dstOff, long src, long n) {
-        System.out.println("copyToArray: Copying " + n  + " bytes from " + src);
+        //System.out.println("copyToArray: Copying " + n  + " bytes from " + src);
         unsafe.copyMemory(null, src, dst, Unsafe.ARRAY_BYTE_BASE_OFFSET + dstOff, n);
     }
 

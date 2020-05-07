@@ -25,11 +25,14 @@ class UnsafeIndexedSeq(
   var region: Region, var aoff: Long) extends IndexedSeq[Annotation] with UnKryoSerializable {
 
   var length: Int = t.loadLength(aoff)
+  assert(length >= 0 && length < 32000)
+  println(s"UnsafeIndexedSeq length = $length")
 
   def apply(i: Int): Annotation = {
     if (i < 0 || i >= length)
       throw new IndexOutOfBoundsException(i.toString)
     if (t.isElementDefined(aoff, i)) {
+      println(s"Loading element $i")
       UnsafeRow.read(t.elementType, region, t.loadElement(aoff, length, i))
     } else
       null
@@ -61,6 +64,7 @@ object UnsafeRow {
   def readAnyRef(t: PType, region: Region, offset: Long): AnyRef = read(t, region, offset).asInstanceOf[AnyRef]
 
   def read(t: PType, region: Region, offset: Long): Any = {
+    println(s"SafeRow Reading: $offset and $t")
     t match {
       case _: PBoolean =>
         Region.loadBoolean(offset)
@@ -73,7 +77,7 @@ object UnsafeRow {
       case t: PSet =>
         readArray(t, region, offset).toSet
       case t: PString => readString(offset, t)
-      case t: PBinary => readBinary(offset, t)
+      case t: PBinary => readBinary(offset, t).toIndexedSeq
       case td: PDict =>
         val a = readArray(td, region, offset)
         a.asInstanceOf[IndexedSeq[Row]].map(r => (r.get(0), r.get(1))).toMap

@@ -2121,22 +2121,26 @@ case class TableGroupWithinPartitions(child: TableIR, name: String, n: Int) exte
           while (trueIt.hasNext && childIterationCount != blockSize) {
             val nextPtr = trueIt.next()
             println(s"TableGroup: inner row before copy starts at #$childIterationCount at $nextPtr")
+            //println(SafeRow.read(prevRowType, nextPtr))
             offsetArray(childIterationCount) = nextPtr
             childIterationCount += 1
           }
           rvb.start(rowType)
           rvb.startStruct()
+          val fieldsAddress = rvb.start
           rvb.addFields(prevRowType, ctx.region, offsetArray(0), keyIndices)
+          Region.doNotOverwrite = rowType.loadField(fieldsAddress, 1)
           rvb.startArray(childIterationCount, true)
           (0 until childIterationCount) foreach { rvArrayIndex =>
-            println(s"TableGroup: inner row after copy starts at ${rvb.currentOffset()}")
+            println(s"TableGroup: inner row after copy starts at #$rvArrayIndex ${rvb.currentOffset()}: REMINDER fieldsAddress = $fieldsAddress")
+            println(SafeRow.read(rowType.types(1), rowType.loadField(fieldsAddress, 1)))
             rvb.addRegionValue(prevRowType, ctx.region, offsetArray(rvArrayIndex))
           }
-          val endingPtr = rvb.currentOffset()
           rvb.endArray()
           rvb.endStruct()
           val startingPtr = rvb.end()
-          println(s"TableGroupRows: full row starts at: $startingPtr, ends at: $endingPtr")
+          println(s"TableGroupRows: full row starts at: $startingPtr")
+          println(s"grouped row: ${SafeRow.read(rowType, startingPtr)}")
           startingPtr
         }
       }

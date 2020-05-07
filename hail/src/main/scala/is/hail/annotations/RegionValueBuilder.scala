@@ -394,7 +394,13 @@ class RegionValueBuilder(var region: Region) {
     assert(typestk.nonEmpty || toOff == start)
 
     toT.constructAtAddress(toOff, region, t.fundamentalType, fromOff, deepCopy)
+    println(s"addRegionValue SafeRow: toOff = ${toOff}, deepCopy = $deepCopy, t = $t, toT = $toT")
+    //println(s"from = ${SafeRow.read(t, fromOff)}")
 
+//    toT match {
+//      case _: PBinary | _: PArray => println(s"pb or pa: to = ${SafeRow.read(toT, Region.loadAddress(toOff))}")
+//      case _ => println(s"other: to = ${SafeRow.read(toT, toOff)}")
+//    }
     advance()
   }
 
