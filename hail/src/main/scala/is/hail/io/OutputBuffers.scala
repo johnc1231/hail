@@ -240,12 +240,12 @@ final class BlockingOutputBuffer(blockSize: Int, out: OutputBlockBuffer) extends
 
   def writeBytes(addr0: Long, n0: Int) {
     assert(n0 >= 0)
-    //println(s"Writing bytes starting with $addr0")
     var addr = addr0
     var n = n0
 
     while (off + n > buf.length) {
       val p = buf.length - off
+      println(s"OutputBuffers.writeBytes, loading: $p bytes from $addr")
       Region.loadBytes(addr, buf, off, p)
       off += p
       addr += p

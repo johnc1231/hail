@@ -30,6 +30,19 @@ final class RegionMemory(pool: RegionPool) extends AutoCloseable {
     jObjects(idx)
   }
 
+  def dumpMemoryInfo(): String = {
+    s"""
+      |Blocks Used = ${usedBlocks.size}, Chunks used = ${bigChunks.size}
+      |Block Info:
+      |  BlockSize = ${blockSize} ($blockByteSize bytes)
+      |  Current Block Info:
+      |    Current Block Address: ${currentBlock}
+      |    Offset Within Block:   ${offsetWithinBlock}
+      |  Used Blocks Info:
+      |    BlockStarts: ${usedBlocks.result().toIndexedSeq}
+      |""".stripMargin
+  }
+
   def allocateNewBlock(): Unit = {
     if (currentBlock != 0)
       usedBlocks += currentBlock
@@ -145,9 +158,18 @@ final class RegionMemory(pool: RegionPool) extends AutoCloseable {
 
   def getReferenceCount: Long = referenceCount
 
+  var printedAlready = false
   def clear(): Unit = {
     assert(referenceCount == 1)
     assert(currentBlock != 0)
+    println(s"RegionMemory: Clearing completely, currentBlock = $currentBlock")
+    if (!printedAlready) {
+      println("clear stack")
+      Thread.currentThread().getStackTrace.toIndexedSeq.foreach(sve =>
+        println(sve)
+      )
+      printedAlready = true
+    }
 
     freeFullBlocks()
     freeChunks()

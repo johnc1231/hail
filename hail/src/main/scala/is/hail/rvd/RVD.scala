@@ -81,7 +81,7 @@ class RVD(
   }
 
   def stabilize(ctx: ExecuteContext, enc: AbstractTypedCodecSpec): RDD[Array[Byte]] = {
-    println("Stabilizing")
+    println(s"Stabilizing, type is: ${this.typ.rowType}")
     val makeEnc = enc.buildEncoder(ctx, rowPType)
     crdd.mapPartitions(RegionValue.toBytes(makeEnc, _)).run
   }

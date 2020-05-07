@@ -34,6 +34,10 @@ final class RegionPool private(strictMemoryCheck: Boolean, threadName: String, t
     }
   }
 
+  def dumpMemoryInfo(): String = {
+    regions.result().filter(rm => rm.currentOffset != 0).map(_.dumpMemoryInfo())reduce { (a, b) => a + "\n" + b}
+  }
+
   protected[annotations] def reclaim(memory: RegionMemory): Unit = {
     freeRegions += memory
   }

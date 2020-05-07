@@ -157,6 +157,7 @@ class RegionValueBuilder(var region: Region) {
 
   private def startArrayInternal(length: Int, init: Boolean, setMissing: Boolean) {
     val t = currentType().asInstanceOf[PArray]
+    //println(s"startArrayInternal: Allocating array of length: $length")
     val aoff = t.allocate(region, length)
 
     if (typestk.nonEmpty) {
