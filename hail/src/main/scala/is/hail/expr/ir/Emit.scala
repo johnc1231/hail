@@ -806,12 +806,10 @@ class Emit[C](
             val dataValue = dataCode.memoize(cb, "make_ndarray_data")
             val dataPtr = dataValue.get.tcode[Long]
             val requiredData = dataPType.checkedConvertFrom(mb, region, dataPtr, coerce[PArray](dataContainer), "NDArray cannot have missing data")
-
             (0 until nDims).foreach { index =>
               cb.ifx(shapeTupleValue.isFieldMissing(index),
                 cb.append(Code._fatal[Unit](s"shape missing at index $index")))
             }
-
             val shapeCodeSeq = (0 until nDims).map(shapeTupleValue[Long](_).get)
 
             def shapeBuilder(srvb: StagedRegionValueBuilder): Code[Unit] = {
