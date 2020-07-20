@@ -27,7 +27,7 @@ case class ENDArrayColumnMajor(elementType: EType, nDims: Int, required: Boolean
     assert(pnd.elementType.required)
     val ndarray = coerce[Long](v)
 
-    val writeShapes = (0 until nDims).map(i => out.get.writeLong(pnd.loadShape(ndarray, i)))
+    val writeShapes = (0 until nDims).map(i => out.writeLong(pnd.loadShape(ndarray, i)))
     val writeElemF = elementType.buildEncoder(pnd.elementType, mb.ecb)
 
     val idxVars = (0 until nDims).map(_ => mb.newLocal[Long]())
