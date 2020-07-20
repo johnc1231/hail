@@ -2,13 +2,14 @@ from functools import reduce
 
 import hail as hl
 from hail.expr.functions import _ndarray
+from hail.expr.functions import array as aarray
 from hail.expr.types import HailType, tfloat64, ttuple, tndarray
-from hail.typecheck import typecheck, nullable, oneof, tupleof
+from hail.typecheck import typecheck, nullable, oneof, tupleof, sequenceof
 from hail.expr.expressions import (
     expr_int32, expr_int64, expr_tuple, expr_any, expr_array, expr_ndarray,
     Int64Expression, cast_expr, construct_expr)
 from hail.expr.expressions.typed_expressions import NDArrayNumericExpression
-from hail.ir import NDArrayQR
+from hail.ir import NDArrayQR, NDArrayInv, NDArrayConcat
 
 
 def array(input_array):
@@ -239,7 +240,8 @@ def qr(nd, mode="reduced"):
     - r: ndarray of float64
         The upper-triangular matrix R.
     - (h, tau): ndarrays of float64
-        The array h contains the Householder reflectors that generate q along with r. The tau array contains scaling factors for the reflectors
+        The array h contains the Householder reflectors that generate q along with r.
+        The tau array contains scaling factors for the reflectors
     """
 
     assert nd.ndim == 2, "QR decomposition requires 2 dimensional ndarray"
@@ -255,3 +257,60 @@ def qr(nd, mode="reduced"):
         return construct_expr(ir, tndarray(tfloat64, 2))
     elif mode in ["complete", "reduced"]:
         return construct_expr(ir, ttuple(tndarray(tfloat64, 2), tndarray(tfloat64, 2)))
+
+
+@typecheck(nd=expr_ndarray())
+def inv(nd):
+    """Performs a matrix inversion.
+
+    :param nd: A 2 dimensional ndarray, shape(M, N)
+
+    Returns
+    -------
+    - a: ndarray of float64
+        The inverted matrix
+    """
+
+    assert nd.ndim == 2, "Matrix inversion requires 2 dimensional ndarray"
+
+    float_nd = nd.map(lambda x: hl.float64(x))
+    ir = NDArrayInv(float_nd._ir)
+    return construct_expr(ir, tndarray(tfloat64, 2))
+
+
+@typecheck(nds=sequenceof(expr_ndarray()), axis=int)
+def concatenate(nds, axis=0):
+    """Join a sequence of arrays along an existing axis.
+
+    Examples
+    --------
+
+    >>> x = hl.nd.array([[1., 2.], [3., 4.]])
+    >>> y = hl.nd.array([[5.], [6.]])
+    >>> res = hl.nd.concatenate([x, y], axis=1)
+    >>> hl.eval(res)
+    array([[1., 2., 5.],
+           [3., 4., 6.]])
+
+    Parameters
+    ----------
+    :param nds: a1, a2, …sequence of array_like
+        The arrays must have the same shape, except in the dimension corresponding to axis (the first, by default).
+        Note: unlike Numpy, the numerical element type of each array_like must match.
+    :param axis: int, optional
+        The axis along which the arrays will be joined. Default is 0.
+        Note: unlike Numpy, if provided, axis cannot be None.
+
+    Returns
+    -------
+    - res: ndarray
+        The concatenated array
+    """
+    head_ndim = nds[0].ndim
+    for nd in nds:
+        assert(nd.ndim == head_ndim)
+
+    makearr = aarray(nds)
+    concat_ir = NDArrayConcat(makearr._ir, axis)
+
+    return construct_expr(concat_ir, concat_ir.typ)

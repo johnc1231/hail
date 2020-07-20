@@ -999,6 +999,25 @@ class Tests(unittest.TestCase):
         s = x.svd(compute_uv=False, complexity_bound=0)
         assert np.all(s >= 0)
 
+    def test_inv(self):
+        c = np.random.randn(5, 5)
+        d = np.linalg.inv(c)
+        dhail = hl.eval(hl.nd.inv(c))
+        assert np.allclose(dhail, d)
+
+    def test_concatenate(self):
+        x = np.array([[1., 2.], [3., 4.]])
+        y = np.array([[5.], [6.]])
+        np_res = np.concatenate([x, y], axis=1)
+
+        res = hl.eval(hl.nd.concatenate([x, y], axis=1))
+        assert np.allclose(np_res, res)
+
+        x = np.array([[1], [3]])
+        y = np.array([[5], [6]])
+        np_res = np.concatenate([x, y])
+        res = hl.eval(hl.nd.concatenate([x, y]))
+        assert np.allclose(np_res, res)
 
     @skip_unless_spark_backend()
     def test_filtering(self):
