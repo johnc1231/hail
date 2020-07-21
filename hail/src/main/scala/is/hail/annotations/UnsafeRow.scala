@@ -94,7 +94,10 @@ object UnsafeRow {
         val includesStart = x.includesStart(offset)
         val includesEnd = x.includesEnd(offset)
         Interval(start, end, includesStart, includesEnd)
-      case nd: PNDArray => read(nd.representation, region, offset)
+      case nd: PNDArray => {
+        log.info(s"Unsafe Row of PNDArray. Called from ${Thread.currentThread().getStackTrace.mkString("\n")}")
+        read(nd.representation, region, offset)
+      }
     }
   }
 }

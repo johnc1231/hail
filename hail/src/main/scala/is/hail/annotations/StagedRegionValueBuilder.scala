@@ -27,10 +27,13 @@ object StagedRegionValueBuilder {
 
   def deepCopyFromOffset(cb: EmitClassBuilder[_], region: Code[Region], typ: PType, value: Code[Long]): Code[Long] = {
     val t = typ match {
-      case t: PNDArray => t.representation
+      case t: PNDArray => {
+        assert(false, "PNDArray")
+        t.representation
+      }
       case t => t.fundamentalType
     }
-    val mb = cb.getOrGenEmitMethod("deepCopyFromOffset", ("deepCopyFromOffset", typ),
+    val mb = cb.getOrGenEmitMethod("deepCopyFromOffset", ("deepCopyFromOffset", t),
       FastIndexedSeq[ParamType](classInfo[Region], LongInfo), LongInfo) { mb =>
       val r = mb.getCodeParam[Region](1)
       val value = mb.getCodeParam[Long](2)
@@ -71,9 +74,9 @@ class StagedRegionValueBuilder private (val mb: EmitMethodBuilder[_], val typ: P
     this(er.mb, rowType, er.region, null)
   }
 
-  private val ftype = typ match {
-    case t => t.fundamentalType
-  }
+  private val ftype = typ.fundamentalType
+
+  assert(!ftype.isInstanceOf[PNDArray])
 
   private var staticIdx: Int = 0
   private var idx: Settable[Int] = _
@@ -129,7 +132,13 @@ class StagedRegionValueBuilder private (val mb: EmitMethodBuilder[_], val typ: P
       }
       if (init)
         c = Code(c, t.stagedInitialize(startOffset, length))
-      c = Code(c, elementsOffset.store(startOffset + t.elementsOffset(length)))
+      c = Code(
+        c,
+        elementsOffset.store(startOffset + t.elementsOffset(length)),
+        Code._println(const(s"SRVB.start: Starting array $ftype of length ").concat(length.toS)),
+        Code._println(const(s"SRVB.start: elementsOffset = ").concat(elementsOffset.toS).concat(" startOffset = ").concat(startOffset.toS))
+        //Code._println(const(s"SRVB.start: StackTrace = \n ${Thread.currentThread().getStackTrace.mkString("\n")}"))
+      )
       Code(c, idx.store(0))
     }
 

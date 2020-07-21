@@ -1,8 +1,9 @@
 package is.hail.types.virtual
 
-import is.hail.annotations.{Annotation, ExtendedOrdering, UnsafeIndexedSeq}
+import is.hail.annotations.{Annotation, ExtendedOrdering, UnsafeIndexedSeq, UnsafeRow}
 import is.hail.expr.{Nat, NatBase}
 import is.hail.types.physical.PNDArray
+import is.hail.utils
 import org.apache.spark.sql.Row
 
 import scala.reflect.{ClassTag, classTag}
@@ -88,6 +89,12 @@ final case class TNDArray(elementType: Type, nDimsBase: NatBase) extends Type {
   override def clear(): Unit = {
     elementType.clear()
     nDimsBase.clear()
+  }
+
+  override def valuesSimilar(a1: Annotation, a2: Annotation, tolerance: Double = utils.defaultTolerance, absolute: Boolean = false): Boolean = {
+    val a2u = a2.asInstanceOf[UnsafeRow]
+    println(s"a1 = ${a1.toString}, a2 = ${a2u.toString}   a2.offset = ${a2u.offset}, a2.get(2).offset = ${a2u.get(2).asInstanceOf[UnsafeIndexedSeq].aoff}")
+    a1 == a2
   }
 
   override def subst(): TNDArray = TNDArray(elementType.subst(), nDimsBase.subst())

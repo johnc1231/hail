@@ -59,6 +59,7 @@ case class ENDArrayColumnMajor(elementType: EType, nDims: Int, required: Boolean
     val dataAddress = mb.newLocal[Long]("ndarray_decoder_data_addr")
 
     val dataIdx = mb.newLocal[Int]("ndarray_decoder_data_idx")
+    val finalAddress = mb.newLocal[Long]("my_answer")
 
     Code(
       totalNumElements := 1L,
@@ -66,12 +67,15 @@ case class ENDArrayColumnMajor(elementType: EType, nDims: Int, required: Boolean
         shapeVar := in.readLong(),
         totalNumElements := totalNumElements * shapeVar
       ))),
-      dataAddress := pnd.data.pType.allocate(region, totalNumElements.toI),
-      pnd.data.pType.stagedInitialize(dataAddress, totalNumElements.toI),
+      Code(
+        dataAddress := pnd.data.pType.allocate(region, totalNumElements.toI),
+        pnd.data.pType.stagedInitialize(dataAddress, totalNumElements.toI)
+      ),
       Code.forLoop(dataIdx := 0, dataIdx < totalNumElements.toI, dataIdx := dataIdx + 1,
         readElemF(region, pnd.data.pType.elementOffset(dataAddress, totalNumElements.toI, dataIdx), in)
       ),
-      pnd.construct(pnd.makeShapeBuilder(shapeVars), pnd.makeColumnMajorStridesBuilder(shapeVars, mb), dataAddress, mb)
+      finalAddress := pnd.construct(pnd.makeShapeBuilder(shapeVars), pnd.makeColumnMajorStridesBuilder(shapeVars, mb), dataAddress, mb),
+      finalAddress
     )
   }
 
