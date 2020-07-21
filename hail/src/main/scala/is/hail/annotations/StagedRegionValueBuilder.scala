@@ -85,7 +85,7 @@ class StagedRegionValueBuilder private (val mb: EmitMethodBuilder[_], val typ: P
     case t: PArray =>
       elementsOffset = mb.genFieldThisRef[Long]("srvb_array_addr")
       idx = mb.genFieldThisRef[Int]("srvb_array_idx")
-    case t: PNDArray => elementsOffset - mb.genFieldThisRef[Long]("srvb_ndarray_struct_addr")
+    case t: PNDArray => elementsOffset = mb.genFieldThisRef[Long]("srvb_ndarray_struct_addr")
     case _ =>
   }
 
