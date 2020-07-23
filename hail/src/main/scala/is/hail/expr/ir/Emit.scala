@@ -1908,7 +1908,7 @@ class Emit[C](
           ),
           infoDGEQRFErrorTest("Failed size query."),
 
-          workAddress := Code.invokeStatic1[CheckedMemory, Long, Long]("malloc", LWORK.toL * 8L),
+          workAddress := Code.invokeStatic1[Memory, Long, Long]("malloc", LWORK.toL * 8L),
 
           infoDGEQRFResult := Code.invokeScalaObject7[Int, Int, Long, Int, Long, Long, Int, Int](LAPACK.getClass, "dgeqrf",
             M.toI,
@@ -1920,7 +1920,7 @@ class Emit[C](
             LWORK
           ),
 
-          Code.invokeStatic1[CheckedMemory, Long, Unit]("free", workAddress.load()),
+          Code.invokeStatic1[Memory, Long, Unit]("free", workAddress.load()),
           infoDGEQRFErrorTest("Failed to compute H and Tau.")
         ))
 
@@ -2049,7 +2049,7 @@ class Emit[C](
               ),
               infoDORQRErrorTest("Failed size query."),
 
-              workAddress := Code.invokeStatic1[CheckedMemory, Long, Long]("malloc", LWORK.toL * 8L),
+              workAddress := Code.invokeStatic1[Memory, Long, Long]("malloc", LWORK.toL * 8L),
 
               infoDORGQRResult := Code.invokeScalaObject8[Int, Int, Int, Long, Int, Long, Long, Int, Int](LAPACK.getClass, "dorgqr",
                 M.toI,
@@ -2061,7 +2061,7 @@ class Emit[C](
                 workAddress,
                 LWORK
               ),
-              Code.invokeStatic1[CheckedMemory, Long, Unit]("free", workAddress.load()),
+              Code.invokeStatic1[Memory, Long, Unit]("free", workAddress.load()),
               infoDORQRErrorTest("Failed to compute Q."),
 
               qDataAddress := qPType.data.pType.allocate(region, qNumElements.toI),
@@ -2139,7 +2139,7 @@ class Emit[C](
           ),
           INFOerror("dgetrf", INFOdgetrf),
 
-          WORKaddr := Code.invokeStatic1[CheckedMemory, Long, Long]("malloc", An.toL * 8L),
+          WORKaddr := Code.invokeStatic1[Memory, Long, Long]("malloc", An.toL * 8L),
 
           INFOdgetri := Code.invokeScalaObject6[Int, Long, Int, Long, Long, Int, Int](LAPACK.getClass, "dgetri",
             N.toI,
