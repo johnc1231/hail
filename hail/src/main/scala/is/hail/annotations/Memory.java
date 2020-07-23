@@ -10,7 +10,6 @@ import java.util.TreeMap;
 public class Memory {
     private static final MemoryInterface mi;
 
-
     public static void storeByte(byte[] mem, long off, byte b) {
         mi.storeByte(mem, off, b);
     }
@@ -171,6 +170,6 @@ public class Memory {
     }
 
     static {
-        mi = new CheckedMemory();
+        mi = new UncheckedMemory();
     }
 }
