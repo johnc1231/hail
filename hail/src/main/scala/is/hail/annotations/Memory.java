@@ -153,6 +153,7 @@ public final class Memory {
         unsafe.putAddress(addr, a);
     }
 
+    // Adding a comment
     public static long malloc(long size) {
         return unsafe.allocateMemory(size);
     }
