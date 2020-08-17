@@ -166,6 +166,7 @@ public final class Memory {
     }
 
 
+    // Copies memory
     public static void memcpy(long dst, long src, long n) {
         if (n > 0) {
             unsafe.copyMemory(src, dst, n);
