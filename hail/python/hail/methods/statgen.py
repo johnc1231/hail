@@ -1942,7 +1942,7 @@ def _blanczos_pca(entry_expr, k=10, compute_loadings=False, q_iterations=2, over
 
     us = hl.nd.array(U @ matrix_S)
     lt = ht.select()
-    lt = lt.annotate_globals(US = us)
+    lt = lt.annotate_globals(US = U)
     lt = lt.add_index()
     idx = lt.key
     lt = lt.annotate(loadings = lt.US[lt.idx,:]._data_array())
