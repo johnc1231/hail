@@ -1829,6 +1829,7 @@ def _blanczos_pca(entry_expr, k=10, compute_loadings=False, q_iterations=2, over
     ht = hl.read_table(temp_file_name, _intervals=new_partitioning)
     temp_file_name_2 = hl.utils.new_temp_file("pca", "ht2")
     ht = ht.checkpoint(temp_file_name_2)
+    print(f"Start time = {time.time()}")
 
     grouped = ht._group_within_partitions("groups", block_size * 2)
     A = grouped.select(ndarray=hl.nd.array(grouped.groups.map(lambda group: group.xs)))
@@ -1876,17 +1877,17 @@ def _blanczos_pca(entry_expr, k=10, compute_loadings=False, q_iterations=2, over
             temp = A.annotate(H_i = A.ndarray @ G_i)
             temp = temp.annotate(G_i_intermediate = temp.ndarray.T @ temp.H_i)
             result = temp.aggregate(hl.struct(Hi_chunks = hl.agg.collect(temp.H_i), 
-                                                G_i = hl.agg.ndarray_sum(temp.G_i_intermediate)))
-            localized_H_i = np.vstack(result.Hi_chunks)
+                                                G_i = hl.agg.ndarray_sum(temp.G_i_intermediate)), _localize=False)
+            localized_H_i = hl.nd.vstack(result.Hi_chunks)
             h_list.append(localized_H_i)
             G_i = result.G_i
 
         temp = A.annotate(H_i = A.ndarray @ G_i)
         result = temp.aggregate(hl.agg.collect(temp.H_i))
-        localized_H_i = np.vstack(result)
+        localized_H_i = hl.nd.vstack(result)
         h_list.append(localized_H_i)
 
-        H = np.hstack(h_list) 
+        H = hl.nd.hstack(h_list)
 
         end = time.time()
         q_loop_time = end - start
@@ -1894,7 +1895,7 @@ def _blanczos_pca(entry_expr, k=10, compute_loadings=False, q_iterations=2, over
         start = time.time()
         
         # perform QR decomposition on unblocked version of H
-        Q, R = np.linalg.qr(H)
+        Q, _ = hl.nd.qr(H)._persist()
 
         end = time.time()
         process_Q_time = end - start
@@ -1907,7 +1908,7 @@ def _blanczos_pca(entry_expr, k=10, compute_loadings=False, q_iterations=2, over
         
         start = time.time()
 
-        U, S, W = np.linalg.svd(arr_T, full_matrices=False)
+        U, S, W = hl.nd.svd(arr_T, full_matrices=False)._persist()
 
         end = time.time()
         svd_time = end - start
@@ -1930,23 +1931,20 @@ def _blanczos_pca(entry_expr, k=10, compute_loadings=False, q_iterations=2, over
             return truncV, truncS, truncW
 
     U, S, V = hailBlanczos(A, G, k, l, q, block_size, report_times)
-    matrix_S = np.diag(S)
 
-    scores = V.transpose() @ matrix_S
+    scores = V.transpose() * S
     eigens = S * S
 
-    hail_scores = hl.nd.array(scores)
-    hail_array_scores = hail_scores._data_array()
+    hail_array_scores = scores._data_array()
     cols_and_scores = hl.zip(ht.index_globals().cols, hail_array_scores).map(lambda tup: tup[0].annotate(scores = tup[1]))
     st = hl.Table.parallelize(cols_and_scores, key=list(mt.col_key))
 
-    us = hl.nd.array(U @ matrix_S)
     lt = ht.select()
     lt = lt.annotate_globals(US = U)
     lt = lt.add_index()
-    idx = lt.key
     lt = lt.annotate(loadings = lt.US[lt.idx,:]._data_array())
 
+    print(f"End time = {time.time()}")
     if compute_loadings:
         return eigens, st, lt
     else:
