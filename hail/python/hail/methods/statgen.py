@@ -1841,7 +1841,7 @@ def _blanczos_pca(entry_expr, k=10, compute_loadings=False, q_iterations=2, over
     n = A.take(1)[0].ndarray.shape[1]
 
     # Generate random matrix G
-    G = np.random.normal(0, 1, (n,l))
+    G = hl.nd.zeros((n, l)).map(lambda x: hl.rand_norm(0, 1)) #np.random.normal(0, 1, (n,l))
 
     # Helper Functions
 
@@ -1904,7 +1904,7 @@ def _blanczos_pca(entry_expr, k=10, compute_loadings=False, q_iterations=2, over
         A = A.annotate(rows_preceeding = hl.int32(hl.scan.sum(A.part_size)))
         A = A.annotate_globals(Qt = Q.T)
         T = A.annotate(ndarray = A.Qt[:, A.rows_preceeding:A.rows_preceeding + A.part_size] @ A.ndarray)
-        arr_T = T.aggregate(hl.agg.ndarray_sum(T.ndarray))
+        arr_T = T.aggregate(hl.agg.ndarray_sum(T.ndarray), _localize=False)
         
         start = time.time()
 
