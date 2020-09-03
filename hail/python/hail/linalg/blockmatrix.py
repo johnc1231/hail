@@ -1459,8 +1459,8 @@ class BlockMatrix(object):
 
         return BlockMatrix(BlockMatrixDot(self._bmir, b._bmir))
 
-    @typecheck_method(b=oneof(np.ndarray, block_matrix_type), splits=int, path_prefix=nullable(str))
-    def tree_matmul(self, b, *, splits, path_prefix=None):
+    @typecheck_method(b=oneof(np.ndarray, block_matrix_type), splits=int, path_prefix=nullable(str), batch_size=int)
+    def tree_matmul(self, b, *, splits, path_prefix=None, batch_size = 10):
         """Matrix multiplication in situations with large inner dimension.
 
         This function splits a single matrix multiplication into `split_on_inner` smaller matrix multiplications,
@@ -1497,8 +1497,20 @@ class BlockMatrix(object):
 
             intermediate_multiply_exprs = [b1 @ b2 for b1, b2 in blocks_to_multiply]
 
-            hl.experimental.write_block_matrices(intermediate_multiply_exprs, path_prefix)
-            read_intermediates = [BlockMatrix.read(f"{path_prefix}_{i}") for i in range(0, len(intermediate_multiply_exprs))]
+            num_intermediates = len(intermediate_multiply_exprs)
+            num_batches = int(math.ceil(num_intermediates / batch_size))
+
+            intermediate_file_names = []
+            for batch_idx in range(num_batches):
+                batched_prefix = f"{path_prefix}_batch_{batch_idx}"
+                starting_intermediate_idx = batch_idx * batch_size
+                ending_intermediate_idx = min(batch_size * (batch_idx + 1), num_intermediates)
+                size_of_current_batch =  ending_intermediate_idx - starting_intermediate_idx
+                for file_no in range(size_of_current_batch):
+                    intermediate_file_names.append(f"{batched_prefix}_{file_no}")
+                hl.experimental.write_block_matrices(intermediate_multiply_exprs[starting_intermediate_idx:ending_intermediate_idx], batched_prefix)
+
+            read_intermediates = [BlockMatrix.read(file_name) for file_name in intermediate_file_names]
 
             return sum(read_intermediates)
 
