@@ -24,7 +24,7 @@ from hail.table import Table
 from hail.typecheck import typecheck, typecheck_method, nullable, oneof, \
     sliceof, sequenceof, lazy, enumeration, numeric, tupleof, func_spec, sized_tupleof
 from hail.utils import new_temp_file, new_local_temp_file, local_path_uri, storage_level
-from hail.utils.java import Env
+from hail.utils.java import Env, info
 
 block_matrix_type = lazy()
 
@@ -1502,6 +1502,7 @@ class BlockMatrix(object):
 
             intermediate_file_names = []
             for batch_idx in range(num_batches):
+                info(f"tree_matmul: Processing batch {batch_idx + 1}/{num_batches}")
                 batched_prefix = f"{path_prefix}_batch_{batch_idx}"
                 starting_intermediate_idx = batch_idx * batch_size
                 ending_intermediate_idx = min(batch_size * (batch_idx + 1), num_intermediates)
@@ -1511,7 +1512,6 @@ class BlockMatrix(object):
                 hl.experimental.write_block_matrices(intermediate_multiply_exprs[starting_intermediate_idx:ending_intermediate_idx], batched_prefix)
 
             read_intermediates = [BlockMatrix.read(file_name) for file_name in intermediate_file_names]
-
             return sum(read_intermediates)
 
         return BlockMatrix(BlockMatrixDot(self._bmir, b._bmir))
