@@ -1796,7 +1796,7 @@ class Emit[C](
         val vars = args.map { a => coerce[Any](mb.newLocal()(typeToTypeInfo(a.pType))) }
         val ins = vars.zip(codeArgs.map(_.v)).map { case (l, i) => l := i }
         val value = Code(Code(ins), meth.invokeCode[Any](
-          ((mb.getCodeParam[Region](1): Param) +: vars.map(_.get: Param)): _*))
+          (CodeParam(region.code) +: vars.map(_.get: Param)): _*))
         strict(pt, value, codeArgs: _*)
       case x@ApplySpecial(_, typeArgs, args, rt) =>
         val codeArgs = args.map(a => emit(a))
