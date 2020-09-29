@@ -378,6 +378,7 @@ def _blanczos_pca(entry_expr, k=10, compute_loadings=False, q_iterations=2, over
         info("blanczos_pca: QR Complete. Computing local SVD")
         U, S, W = hl.nd.svd(arr_T, full_matrices=False)._persist()
 
+        info("blanczos_pca: V = Q @ U")
         V = Q @ U
 
         truncV = V[:, :k]
@@ -387,14 +388,18 @@ def _blanczos_pca(entry_expr, k=10, compute_loadings=False, q_iterations=2, over
         return truncV, truncS, truncW
 
     U, S, V = hailBlanczos(A, G, k, q)
+    info("blanczos_pca: returned from hailBlanczos helper call")
 
     scores = V.transpose() * S
+    info("blanczos_pca: About to eval S * S")
     eigens = hl.eval(S * S)
     info("blanczos_pca: SVD Complete. Computing conversion to PCs.")
 
     hail_array_scores = scores._data_array()
     cols_and_scores = hl.zip(ht.index_globals().cols, hail_array_scores).map(lambda tup: tup[0].annotate(scores=tup[1]))
+    info("blanczos_pca: Trying to parallelize")
     st = hl.Table.parallelize(cols_and_scores, key=list(mt.col_key))
+    info("blanczos_pca: Executed Table.parallelize")
 
     lt = ht.select()
     lt = lt.annotate_globals(U=U)
