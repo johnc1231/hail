@@ -452,14 +452,15 @@ def _linear_regression_rows_nd(y, x, covariates, block_size=16, pass_through=())
     y_nd = hl.nd.array(ys_and_covs_to_keep.map(lambda struct: hl.array([struct[y_name] for y_name in y_field_names])))
     k = builtins.len(covariates)
     n = hl.len(indices_to_keep)
-    cov_Qt = hl.if_else(k > 0, hl.nd.qr(cov_nd)[0].T, hl.nd.zeros((0, n)))
     ht = ht.annotate_globals(
         n=n,
         d=n - k - 1,
         kept_samples=indices_to_keep,
         __y_nd=y_nd,
+        __cov_nd=cov_nd
     )
 
+    cov_Qt = hl.if_else(k > 0, hl.nd.qr(ht.__cov_nd)[0].T, hl.nd.zeros((0, n)))
     ht = ht.annotate_globals(__Qty=cov_Qt @ ht.__y_nd)
     ht = ht.annotate_globals(__yyp=dot_rows_with_themselves(ht.__y_nd.T) - dot_rows_with_themselves(ht.__Qty.T))
 
