@@ -458,10 +458,9 @@ def _linear_regression_rows_nd(y, x, covariates, block_size=16, pass_through=())
         d=n - k - 1,
         kept_samples=indices_to_keep,
         __y_nd=y_nd,
-        __cov_nd=cov_nd,
-        __Qty=cov_Qt @ y_nd
     )
 
+    ht = ht.annotate_globals(__Qty=cov_Qt @ ht.__y_nd)
     ht = ht.annotate_globals(__yyp=dot_rows_with_themselves(ht.__y_nd.T) - dot_rows_with_themselves(ht.__Qty.T))
 
     def process_block(block):
