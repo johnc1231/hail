@@ -460,6 +460,7 @@ def _linear_regression_rows_nd(y, x, covariates, block_size=16, pass_through=())
     ht = ht.annotate_globals(__yyp=dot_rows_with_themselves(ht.__y_nd.T) - dot_rows_with_themselves(ht.__Qty.T))
 
     def process_block(block):
+        rows_in_block = hl.len(block)
         X = hl.nd.array(block[entries_field_name].map(lambda row: mean_impute(select_array_indices(row, ht.kept_samples)))).T
         sum_x = (X.T @ hl.nd.ones((n,)))._data_array()
         Qtx = cov_Qt @ X
@@ -481,7 +482,13 @@ def _linear_regression_rows_nd(y, x, covariates, block_size=16, pass_through=())
         # Turn it into a giant zipped list, so that it can be iterated over all at once
         combined_field_names = [key for key, value in combined_dict.items()]
         combined_field_data = [value for key, value in combined_dict.items()]
-        linreg_structs = hl.zip(*combined_field_data).map(lambda tup: hl.struct(**{combined_field_names[i]: tup[i] for i in range(len(combined_field_names))}))
+
+        def build_row(row_idx):
+            keys = {field_name: block[field_name][row_idx] for field_name in key_fields}
+            computed = {key: value[row_idx] for key, value in combined_dict.items()}
+            return hl.struct(**{**keys, **computed})
+
+        linreg_structs = hl.range(rows_in_block).map(build_row)
         return linreg_structs
 
     def process_partition(part):
