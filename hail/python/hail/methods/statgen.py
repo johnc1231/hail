@@ -476,16 +476,14 @@ def _linear_regression_rows_nd(y, x, covariates, block_size=16, pass_through=())
         key_dict = {key_field: block[key_field] for key_field in key_fields}
         linreg_fields_dict = {"sum_x": sum_x, "y_transpose_x": ytx.T._data_array(), "beta": b.T._data_array(),
                               "standard_error": se.T._data_array(), "t_stat": t.T._data_array(), "p_value": p.T._data_array()}
-        combined_dict = {**key_dict, **linreg_fields_dict}
-
+        linreg_struct = hl.struct(**linreg_fields_dict)
+        computed_names = linreg_fields_dict.keys()
         # Need to pull off "struct of arrays to array of structs". How?
         # Turn it into a giant zipped list, so that it can be iterated over all at once
-        combined_field_names = [key for key, value in combined_dict.items()]
-        combined_field_data = [value for key, value in combined_dict.items()]
 
         def build_row(row_idx):
             keys = {field_name: block[field_name][row_idx] for field_name in key_fields}
-            computed = {key: value[row_idx] for key, value in combined_dict.items()}
+            computed = {field_name: linreg_struct[field_name][row_idx] for field_name in computed_names}
             return hl.struct(**{**keys, **computed})
 
         linreg_structs = hl.range(rows_in_block).map(build_row)
