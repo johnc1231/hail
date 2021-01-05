@@ -916,6 +916,7 @@ class Emit[C](
               cb.ifx((M cne 0L) && (N cne 0L) && (K cne 0L), {
                 cb.assign(answerPArrayAddress, outputPType.data.pType.allocate(region.code, (M * N).toI))
                 cb.append(outputPType.data.pType.stagedInitialize(answerPArrayAddress, (M * N).toI))
+                cb.append(Code._println(Code.currentTimeMillis().toS))
                 cb.append(lPType.elementType match {
                   case PFloat32(_) =>
                     Code.invokeScalaObject13[String, String, Int, Int, Int, Float, Long, Int, Long, Int, Float, Long, Int, Unit](BLAS.getClass, method = "sgemm",
@@ -950,6 +951,7 @@ class Emit[C](
                       LDC.toI
                     )
                 })
+                cb.append(Code._println(Code.currentTimeMillis().toS))
               },
                 {
                   cb.assign(answerPArrayAddress, outputPType.data.pType.zeroes(mb, region.code, (M * N).toI))
