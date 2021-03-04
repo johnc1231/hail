@@ -314,6 +314,7 @@ tasks.withType(ShadowJar) {
     relocate 'com.github.samtools', 'is.hail.relocated.com.github.samtools'
     relocate 'org.lz4', 'is.hail.relocated.org.lz4'
     relocate 'org.freemarker', 'is.hail.relocated.org.freemarker'
+    relocate 'org.json4s', 'is.hail.relocated.org.json4s'
 
     exclude 'META-INF/*.RSA'
     exclude 'META-INF/*.SF'
