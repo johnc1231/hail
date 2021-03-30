@@ -1822,8 +1822,7 @@ private class BlockMatrixMultiplyRDD(l: BlockMatrix, r: BlockMatrix)
   val rightType = BlockMatrixType.fromBlockMatrix(r)
   val productType = BlockMatrixType.matmulType(leftType, rightType)
 
-
-  private val gp = GridPartitioner(l.blockSize, l.nRows, r.nCols)
+  private val gp = GridPartitioner.fromBlockMatrixType(productType)
   
   private val lParts = l.blocks.partitions
   private val rParts = r.blocks.partitions

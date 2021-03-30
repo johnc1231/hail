@@ -1,10 +1,23 @@
 package is.hail.linalg
 
 import breeze.linalg.{DenseVector => BDV}
+import is.hail.types.BlockMatrixType
 import is.hail.utils._
 import org.apache.spark.Partitioner
 
 import scala.collection.mutable
+
+object GridPartitioner {
+  def fromBlockMatrixType(typ: BlockMatrixType): GridPartitioner = {
+    val partitionIndexToBlockIndex = typ.sparsity.definedBlocksColMajor.map { presentBlocks =>
+      presentBlocks.map { case (blockRow, blockCol) =>
+        blockCol * typ.nRowBlocks + blockRow
+      }
+    }
+
+    GridPartitioner(typ.blockSize, typ.nRows, typ.nCols, partitionIndexToBlockIndex)
+  }
+}
 
 /**
   * BLOCKS ARE NUMBERED COLUMN MAJOR
