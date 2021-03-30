@@ -1,5 +1,6 @@
 package is.hail.types
 
+import is.hail.expr.ir.BlockMatrixIR
 import is.hail.utils._
 import is.hail.types.virtual.{TFloat64, Type}
 import is.hail.linalg.BlockMatrix
@@ -105,6 +106,36 @@ object BlockMatrixType {
     val sparsity = BlockMatrixSparsity.fromLinearBlocks(value.nRows, value.nCols, value.blockSize, value.gp.partitionIndexToBlockIndex)
     val (shape, isRowVector) = matrixToTensorShape(value.nRows, value.nCols)
     BlockMatrixType(TFloat64, shape, isRowVector, value.blockSize, sparsity)
+  }
+
+  def matmulType(leftType: BlockMatrixType, rightType: BlockMatrixType): BlockMatrixType = {
+    val blockSize = leftType.blockSize
+    val (lRows, lCols) = tensorShapeToMatrixShape(leftType)
+    val (rRows, rCols) = tensorShapeToMatrixShape(rightType)
+    assert(lCols == rRows)
+
+    val (tensorShape, isRowVector) = BlockMatrixIR.matrixShapeToTensorShape(lRows, rCols)
+    val sparsity = if (leftType.isSparse || rightType.isSparse)
+      BlockMatrixSparsity.constructFromShapeAndFunction(
+        BlockMatrixType.numBlocks(lRows, blockSize),
+        BlockMatrixType.numBlocks(rCols, blockSize)) { (i: Int, j: Int) =>
+        Array.tabulate(BlockMatrixType.numBlocks(rCols, blockSize)) { k =>
+          leftType.hasBlock(i -> k) && rightType.hasBlock(k -> j)
+        }.reduce(_ || _)
+      } else BlockMatrixSparsity.dense
+    BlockMatrixType(leftType.elementType, tensorShape, isRowVector, blockSize, sparsity)
+  }
+
+  def tensorShapeToMatrixShape(typ: BlockMatrixType): (Long, Long) = {
+    val shape = typ.shape
+    val isRowVector = typ.isRowVector
+
+    assert(shape.length <= 2)
+    shape match {
+      case IndexedSeq() => (1, 1)
+      case IndexedSeq(len) => if (isRowVector) (1, len) else (len, 1)
+      case IndexedSeq(r, c) => (r, c)
+    }
   }
 }
 

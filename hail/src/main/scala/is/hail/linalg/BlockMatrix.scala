@@ -1818,11 +1818,9 @@ private class BlockMatrixMultiplyRDD(l: BlockMatrix, r: BlockMatrix)
   private val lGP = l.gp
   private val rGP = r.gp
 
-  val sparsityPattern = if (l.isSparse && r.isSparse) {
-    val leftBlockCoords = (0 until lGP.partitionIndexToBlockIndex.get.size).map(partIdx => lGP.partCoordinates(partIdx))
-    val rightBlockCoords = (0 until rGP.partitionIndexToBlockIndex.get.size).map(partIdx => rGP.partCoordinates(partIdx))
-    Some(???)
-  } else None
+  val leftType = BlockMatrixType.fromBlockMatrix(l)
+  val rightType = BlockMatrixType.fromBlockMatrix(r)
+  val productType = BlockMatrixType.matmulType(leftType, rightType)
 
 
   private val gp = GridPartitioner(l.blockSize, l.nRows, r.nCols)

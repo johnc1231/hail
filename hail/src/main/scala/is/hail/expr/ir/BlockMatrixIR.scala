@@ -51,15 +51,7 @@ object BlockMatrixIR {
   }
 
   def tensorShapeToMatrixShape(bmir: BlockMatrixIR): (Long, Long) = {
-    val shape = bmir.typ.shape
-    val isRowVector = bmir.typ.isRowVector
-
-    assert(shape.length <= 2)
-    shape match {
-      case IndexedSeq() => (1, 1)
-      case IndexedSeq(len) => if (isRowVector) (1, len) else (len, 1)
-      case IndexedSeq(r, c) => (r, c)
-    }
+    BlockMatrixType.tensorShapeToMatrixShape(bmir.typ)
   }
 }
 
