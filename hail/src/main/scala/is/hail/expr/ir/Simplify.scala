@@ -249,6 +249,9 @@ object Simplify {
       NDArrayMap(child, innerName, Let(outerName, innerBody, outerBody))
     }
 
+    case NDArrayReindex(MakeNDArray(data, shape, rowMajor, errorId), IndexedSeq(1, 0)) =>
+      MakeNDArray(data, maketuple(GetTupleElement(shape, 1), GetTupleElement(shape, 0)), ApplyUnaryPrimOp(Bang(), rowMajor), errorId)
+
     case GetField(MakeStruct(fields), name) =>
       val (_, x) = fields.find { case (n, _) => n == name }.get
       x
