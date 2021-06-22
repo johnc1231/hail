@@ -124,13 +124,13 @@ class SNDArrayPointerCode(val st: SNDArrayPointer, val a: Code[Long]) extends SN
 
   override def makeCodeTuple(cb: EmitCodeBuilder): IndexedSeq[Code[_]] = FastIndexedSeq(a)
 
-  def memoize(cb: EmitCodeBuilder, name: String, sb: SettableBuilder): SNDArrayValue = {
+  def memoize(cb: EmitCodeBuilder, name: String, sb: SettableBuilder): SNDArrayPointerSettable = {
     val s = SNDArrayPointerSettable(sb, st, name)
     cb.assign(s, this)
     s
   }
 
-  override def memoize(cb: EmitCodeBuilder, name: String): SNDArrayValue = memoize(cb, name, cb.localBuilder)
+  override def memoize(cb: EmitCodeBuilder, name: String): SNDArrayPointerSettable = memoize(cb, name, cb.localBuilder)
 
   override def memoizeField(cb: EmitCodeBuilder, name: String): SValue = memoize(cb, name, cb.fieldBuilder)
 
