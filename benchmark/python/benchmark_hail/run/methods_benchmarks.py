@@ -199,21 +199,6 @@ def linear_regression_rows(mt_path):
                                     covariates=[mt[key] for key in cov_dict.keys()])
     res._force_count()
 
-
-@benchmark(args=random_doubles.handle('mt'))
-def linear_regression_rows_nd(mt_path):
-    mt = hl.read_matrix_table(mt_path)
-    num_phenos = 100
-    num_covs = 20
-    pheno_dict = {f"pheno_{i}": hl.rand_unif(0, 1) for i in range(num_phenos)}
-    cov_dict = {f"cov_{i}": hl.rand_unif(0, 1) for i in range(num_covs)}
-    mt = mt.annotate_cols(**pheno_dict)
-    mt = mt.annotate_cols(**cov_dict)
-    res = hl._linear_regression_rows_nd(y=[mt[key] for key in pheno_dict.keys()],
-                                       x=mt.x,
-                                       covariates=[mt[key] for key in cov_dict.keys()])
-    res._force_count()
-
 @benchmark(args=random_doubles.handle('mt'))
 def logistic_regression_rows_wald(mt_path):
     mt = hl.read_matrix_table(mt_path)

@@ -57,7 +57,6 @@ class Tests(unittest.TestCase):
         self.assertTrue(hl.impute_sex(ds.GT)._same(hl.impute_sex(ds.GT, aaf='aaf')))
 
     backend_name = os.environ.get('HAIL_QUERY_BACKEND', 'spark')
-    linreg_functions = [hl.linear_regression_rows, hl._linear_regression_rows_nd] if backend_name == "spark" else [hl._linear_regression_rows_nd]
 
     @skip_when_service_backend('Shuffler encoding/decoding is broken.')
     def test_linreg_basic(self):
@@ -72,28 +71,27 @@ class Tests(unittest.TestCase):
         mt = mt.annotate_cols(pheno=phenos[mt.s].Pheno, cov=covs[mt.s])
         mt = mt.annotate_entries(x=mt.GT.n_alt_alleles()).cache()
 
-        for linreg_function in self.linreg_functions:
-            t1 = linreg_function(
-                y=mt.pheno, x=mt.GT.n_alt_alleles(), covariates=[1.0, mt.cov.Cov1, mt.cov.Cov2 + 1 - 1])
-            t1 = t1.select(p=t1.p_value)
+        t1 = hl.linear_regression_rows(
+            y=mt.pheno, x=mt.GT.n_alt_alleles(), covariates=[1.0, mt.cov.Cov1, mt.cov.Cov2 + 1 - 1])
+        t1 = t1.select(p=t1.p_value)
 
-            t2 = linreg_function(
-                y=mt.pheno, x=mt.x, covariates=[1.0, mt.cov.Cov1, mt.cov.Cov2])
-            t2 = t2.select(p=t2.p_value)
+        t2 = hl.linear_regression_rows(
+            y=mt.pheno, x=mt.x, covariates=[1.0, mt.cov.Cov1, mt.cov.Cov2])
+        t2 = t2.select(p=t2.p_value)
 
-            t3 = linreg_function(
-                y=[mt.pheno], x=mt.x, covariates=[1.0, mt.cov.Cov1, mt.cov.Cov2])
-            t3 = t3.select(p=t3.p_value[0])
+        t3 = hl.linear_regression_rows(
+            y=[mt.pheno], x=mt.x, covariates=[1.0, mt.cov.Cov1, mt.cov.Cov2])
+        t3 = t3.select(p=t3.p_value[0])
 
-            t4 = linreg_function(
-                y=[mt.pheno, mt.pheno], x=mt.x, covariates=[1.0, mt.cov.Cov1, mt.cov.Cov2])
-            t4a = t4.select(p=t4.p_value[0])
-            t4b = t4.select(p=t4.p_value[1])
+        t4 = hl.linear_regression_rows(
+            y=[mt.pheno, mt.pheno], x=mt.x, covariates=[1.0, mt.cov.Cov1, mt.cov.Cov2])
+        t4a = t4.select(p=t4.p_value[0])
+        t4b = t4.select(p=t4.p_value[1])
 
-            self.assertTrue(t1._same(t2))
-            self.assertTrue(t1._same(t3))
-            self.assertTrue(t1._same(t4a))
-            self.assertTrue(t1._same(t4b))
+        self.assertTrue(t1._same(t2))
+        self.assertTrue(t1._same(t3))
+        self.assertTrue(t1._same(t4a))
+        self.assertTrue(t1._same(t4b))
 
     def test_linreg_pass_through(self):
         phenos = hl.import_table(resource('regressionLinear.pheno'),
@@ -105,38 +103,37 @@ class Tests(unittest.TestCase):
 
         mt = hl.import_vcf(resource('regressionLinear.vcf')).annotate_rows(foo = hl.struct(bar=hl.rand_norm(0, 1)))
 
-        for linreg_function in self.linreg_functions:
 
-            # single group
-            lr_result = linreg_function(phenos[mt.s].Pheno, mt.GT.n_alt_alleles(), [1.0],
-                                        pass_through=['filters', mt.foo.bar, mt.qual])
+        # single group
+        lr_result = hl.linear_regression_rows(phenos[mt.s].Pheno, mt.GT.n_alt_alleles(), [1.0],
+                                    pass_through=['filters', mt.foo.bar, mt.qual])
 
-            assert mt.aggregate_rows(hl.agg.all(mt.foo.bar == lr_result[mt.row_key].bar))
+        assert mt.aggregate_rows(hl.agg.all(mt.foo.bar == lr_result[mt.row_key].bar))
 
-            # chained
-            lr_result = linreg_function([[phenos[mt.s].Pheno]], mt.GT.n_alt_alleles(), [1.0],
-                                        pass_through=['filters', mt.foo.bar, mt.qual])
+        # chained
+        lr_result = hl.linear_regression_rows([[phenos[mt.s].Pheno]], mt.GT.n_alt_alleles(), [1.0],
+                                    pass_through=['filters', mt.foo.bar, mt.qual])
 
-            assert mt.aggregate_rows(hl.agg.all(mt.foo.bar == lr_result[mt.row_key].bar))
+        assert mt.aggregate_rows(hl.agg.all(mt.foo.bar == lr_result[mt.row_key].bar))
 
-            # check types
-            assert 'filters' in lr_result.row
-            assert lr_result.filters.dtype == mt.filters.dtype
+        # check types
+        assert 'filters' in lr_result.row
+        assert lr_result.filters.dtype == mt.filters.dtype
 
-            assert 'bar' in lr_result.row
-            assert lr_result.bar.dtype == mt.foo.bar.dtype
+        assert 'bar' in lr_result.row
+        assert lr_result.bar.dtype == mt.foo.bar.dtype
 
-            assert 'qual' in lr_result.row
-            assert lr_result.qual.dtype == mt.qual.dtype
+        assert 'qual' in lr_result.row
+        assert lr_result.qual.dtype == mt.qual.dtype
 
-            # should run successfully with key fields
-            linreg_function([[phenos[mt.s].Pheno]], mt.GT.n_alt_alleles(), [1.0],
-                            pass_through=['locus', 'alleles'])
+        # should run successfully with key fields
+        hl.linear_regression_rows([[phenos[mt.s].Pheno]], mt.GT.n_alt_alleles(), [1.0],
+                        pass_through=['locus', 'alleles'])
 
-            # complex expression
-            with pytest.raises(ValueError):
-                linreg_function([[phenos[mt.s].Pheno]], mt.GT.n_alt_alleles(), [1.0],
-                                pass_through=[mt.filters.length()])
+        # complex expression
+        with pytest.raises(ValueError):
+            hl.linear_regression_rows([[phenos[mt.s].Pheno]], mt.GT.n_alt_alleles(), [1.0],
+                            pass_through=[mt.filters.length()])
 
     @skip_when_service_backend('ShuffleRead non-deterministically causes segfaults')
     def test_linreg_chained(self):
@@ -151,84 +148,81 @@ class Tests(unittest.TestCase):
         mt = mt.annotate_cols(pheno=phenos[mt.s].Pheno, cov=covs[mt.s])
         mt = mt.annotate_entries(x=mt.GT.n_alt_alleles()).cache()
 
-        for linreg_function in self.linreg_functions:
+        t1 = hl.linear_regression_rows(y=[[mt.pheno], [mt.pheno]], x=mt.x, covariates=[1, mt.cov.Cov1, mt.cov.Cov2])
 
-            t1 = linreg_function(y=[[mt.pheno], [mt.pheno]], x=mt.x, covariates=[1, mt.cov.Cov1, mt.cov.Cov2])
+        def all_eq(*args):
+            pred = True
+            for a in args:
+                if isinstance(a, hl.expr.Expression) \
+                        and isinstance(a.dtype, hl.tarray) \
+                        and isinstance(a.dtype.element_type, hl.tarray):
+                    pred = pred & (hl.all(lambda x: x,
+                                          hl.map(lambda elt: ((hl.is_nan(elt[0]) & hl.is_nan(elt[1])) | (elt[0] == elt[1])),
+                                                 hl.zip(a[0], a[1]))))
+                else:
+                    pred = pred & ((hl.is_nan(a[0]) & hl.is_nan(a[1])) | (a[0] == a[1]))
+            return pred
 
-            def all_eq(*args):
-                pred = True
-                for a in args:
-                    if isinstance(a, hl.expr.Expression) \
-                            and isinstance(a.dtype, hl.tarray) \
-                            and isinstance(a.dtype.element_type, hl.tarray):
-                        pred = pred & (hl.all(lambda x: x,
-                                              hl.map(lambda elt: ((hl.is_nan(elt[0]) & hl.is_nan(elt[1])) | (elt[0] == elt[1])),
-                                                     hl.zip(a[0], a[1]))))
-                    else:
-                        pred = pred & ((hl.is_nan(a[0]) & hl.is_nan(a[1])) | (a[0] == a[1]))
-                return pred
+        assert t1.aggregate(hl.agg.all(
+            all_eq(t1.n,
+                   t1.sum_x,
+                   t1.y_transpose_x,
+                   t1.beta,
+                   t1.standard_error,
+                   t1.t_stat,
+                   t1.p_value)))
 
-            assert t1.aggregate(hl.agg.all(
-                all_eq(t1.n,
-                       t1.sum_x,
-                       t1.y_transpose_x,
-                       t1.beta,
-                       t1.standard_error,
-                       t1.t_stat,
-                       t1.p_value)))
+        mt2 = mt.filter_cols(mt.cov.Cov2 >= 0)
+        mt3 = mt.filter_cols(mt.cov.Cov2 <= 0)
 
-            mt2 = mt.filter_cols(mt.cov.Cov2 >= 0)
-            mt3 = mt.filter_cols(mt.cov.Cov2 <= 0)
+        # test that chained linear regression can replicate separate calls with different missingness
+        t2 = hl.linear_regression_rows(y=mt2.pheno, x=mt2.x, covariates=[1, mt2.cov.Cov1])
+        t3 = hl.linear_regression_rows(y=mt3.pheno, x=mt3.x, covariates=[1, mt3.cov.Cov1])
 
-            # test that chained linear regression can replicate separate calls with different missingness
-            t2 = hl.linear_regression_rows(y=mt2.pheno, x=mt2.x, covariates=[1, mt2.cov.Cov1])
-            t3 = hl.linear_regression_rows(y=mt3.pheno, x=mt3.x, covariates=[1, mt3.cov.Cov1])
+        chained = hl.linear_regression_rows(y=[[hl.case().when(mt.cov.Cov2 >= 0, mt.pheno).or_missing()],
+                                               [hl.case().when(mt.cov.Cov2 <= 0, mt.pheno).or_missing()]],
+                                            x=mt.x,
+                                            covariates=[1, mt.cov.Cov1])
+        chained = chained.annotate(r0=t2[chained.key], r1=t3[chained.key])
+        assert chained.aggregate(hl.agg.all(
+            all_eq([chained.n[0], chained.r0.n],
+                   [chained.n[1], chained.r1.n],
+                   [chained.sum_x[0], chained.r0.sum_x],
+                   [chained.sum_x[1], chained.r1.sum_x],
+                   [chained.y_transpose_x[0][0], chained.r0.y_transpose_x],
+                   [chained.y_transpose_x[1][0], chained.r1.y_transpose_x],
+                   [chained.beta[0][0], chained.r0.beta],
+                   [chained.beta[1][0], chained.r1.beta],
+                   [chained.standard_error[0][0], chained.r0.standard_error],
+                   [chained.standard_error[1][0], chained.r1.standard_error],
+                   [chained.t_stat[0][0], chained.r0.t_stat],
+                   [chained.t_stat[1][0], chained.r1.t_stat],
+                   [chained.p_value[0][0], chained.r0.p_value],
+                   [chained.p_value[1][0], chained.r1.p_value])))
 
-            chained = hl.linear_regression_rows(y=[[hl.case().when(mt.cov.Cov2 >= 0, mt.pheno).or_missing()],
-                                                   [hl.case().when(mt.cov.Cov2 <= 0, mt.pheno).or_missing()]],
-                                                x=mt.x,
-                                                covariates=[1, mt.cov.Cov1])
-            chained = chained.annotate(r0=t2[chained.key], r1=t3[chained.key])
-            assert chained.aggregate(hl.agg.all(
-                all_eq([chained.n[0], chained.r0.n],
-                       [chained.n[1], chained.r1.n],
-                       [chained.sum_x[0], chained.r0.sum_x],
-                       [chained.sum_x[1], chained.r1.sum_x],
-                       [chained.y_transpose_x[0][0], chained.r0.y_transpose_x],
-                       [chained.y_transpose_x[1][0], chained.r1.y_transpose_x],
-                       [chained.beta[0][0], chained.r0.beta],
-                       [chained.beta[1][0], chained.r1.beta],
-                       [chained.standard_error[0][0], chained.r0.standard_error],
-                       [chained.standard_error[1][0], chained.r1.standard_error],
-                       [chained.t_stat[0][0], chained.r0.t_stat],
-                       [chained.t_stat[1][0], chained.r1.t_stat],
-                       [chained.p_value[0][0], chained.r0.p_value],
-                       [chained.p_value[1][0], chained.r1.p_value])))
+        # test differential missingness against each other
+        phenos = [hl.case().when(mt.cov.Cov2 >= -1, mt.pheno).or_missing(),
+                  hl.case().when(mt.cov.Cov2 <= 1, mt.pheno).or_missing()]
+        t4 = hl.linear_regression_rows(phenos, mt.x, covariates=[1])
+        t5 = hl.linear_regression_rows([phenos], mt.x, covariates=[1])
 
-            # test differential missingness against each other
-            phenos = [hl.case().when(mt.cov.Cov2 >= -1, mt.pheno).or_missing(),
-                      hl.case().when(mt.cov.Cov2 <= 1, mt.pheno).or_missing()]
-            t4 = hl.linear_regression_rows(phenos, mt.x, covariates=[1])
-            t5 = hl.linear_regression_rows([phenos], mt.x, covariates=[1])
-
-            t5 = t5.annotate(**{x: t5[x][0] for x in ['n', 'sum_x', 'y_transpose_x', 'beta', 'standard_error', 't_stat', 'p_value']})
-            assert t4._same(t5)
+        t5 = t5.annotate(**{x: t5[x][0] for x in ['n', 'sum_x', 'y_transpose_x', 'beta', 'standard_error', 't_stat', 'p_value']})
+        assert t4._same(t5)
 
     def test_linear_regression_without_intercept(self):
-        for linreg_function in self.linreg_functions:
-            pheno = hl.import_table(resource('regressionLinear.pheno'),
-                                    key='Sample',
-                                    missing='0',
-                                    types={'Pheno': hl.tfloat})
-            mt = hl.import_vcf(resource('regressionLinear.vcf'))
-            ht = linreg_function(y=pheno[mt.s].Pheno,
-                                 x=mt.GT.n_alt_alleles(),
-                                 covariates=[])
-            results = dict(hl.tuple([ht.locus.position, ht.row]).collect())
-            self.assertAlmostEqual(results[1].beta, 1.5, places=6)
-            self.assertAlmostEqual(results[1].standard_error, 1.161895, places=6)
-            self.assertAlmostEqual(results[1].t_stat, 1.290994, places=6)
-            self.assertAlmostEqual(results[1].p_value, 0.25317, places=6)
+        pheno = hl.import_table(resource('regressionLinear.pheno'),
+                                key='Sample',
+                                missing='0',
+                                types={'Pheno': hl.tfloat})
+        mt = hl.import_vcf(resource('regressionLinear.vcf'))
+        ht = hl.linear_regression_rows(y=pheno[mt.s].Pheno,
+                             x=mt.GT.n_alt_alleles(),
+                             covariates=[])
+        results = dict(hl.tuple([ht.locus.position, ht.row]).collect())
+        self.assertAlmostEqual(results[1].beta, 1.5, places=6)
+        self.assertAlmostEqual(results[1].standard_error, 1.161895, places=6)
+        self.assertAlmostEqual(results[1].t_stat, 1.290994, places=6)
+        self.assertAlmostEqual(results[1].p_value, 0.25317, places=6)
 
     # comparing to R:
     # y = c(1, 1, 2, 2, 2, 2)
@@ -251,36 +245,35 @@ class Tests(unittest.TestCase):
 
         mt = hl.import_vcf(resource('regressionLinear.vcf'))
 
-        for linreg_function in self.linreg_functions:
-            ht = linreg_function(y=pheno[mt.s].Pheno,
-                                 x=mt.GT.n_alt_alleles(),
-                                 covariates=[1.0] + list(covariates[mt.s].values()))
+        ht = hl.linear_regression_rows(y=pheno[mt.s].Pheno,
+                             x=mt.GT.n_alt_alleles(),
+                             covariates=[1.0] + list(covariates[mt.s].values()))
 
-            results = dict(hl.tuple([ht.locus.position, ht.row]).collect())
+        results = dict(hl.tuple([ht.locus.position, ht.row]).collect())
 
-            self.assertAlmostEqual(results[1].beta, -0.28589421, places=6)
-            self.assertAlmostEqual(results[1].standard_error, 1.2739153, places=6)
-            self.assertAlmostEqual(results[1].t_stat, -0.22442167, places=6)
-            self.assertAlmostEqual(results[1].p_value, 0.84327106, places=6)
+        self.assertAlmostEqual(results[1].beta, -0.28589421, places=6)
+        self.assertAlmostEqual(results[1].standard_error, 1.2739153, places=6)
+        self.assertAlmostEqual(results[1].t_stat, -0.22442167, places=6)
+        self.assertAlmostEqual(results[1].p_value, 0.84327106, places=6)
 
-            self.assertAlmostEqual(results[2].beta, -0.5417647, places=6)
-            self.assertAlmostEqual(results[2].standard_error, 0.3350599, places=6)
-            self.assertAlmostEqual(results[2].t_stat, -1.616919, places=6)
-            self.assertAlmostEqual(results[2].p_value, 0.24728705, places=6)
+        self.assertAlmostEqual(results[2].beta, -0.5417647, places=6)
+        self.assertAlmostEqual(results[2].standard_error, 0.3350599, places=6)
+        self.assertAlmostEqual(results[2].t_stat, -1.616919, places=6)
+        self.assertAlmostEqual(results[2].p_value, 0.24728705, places=6)
 
-            self.assertAlmostEqual(results[3].beta, 1.07367185, places=6)
-            self.assertAlmostEqual(results[3].standard_error, 0.6764348, places=6)
-            self.assertAlmostEqual(results[3].t_stat, 1.5872510, places=6)
-            self.assertAlmostEqual(results[3].p_value, 0.2533675, places=6)
+        self.assertAlmostEqual(results[3].beta, 1.07367185, places=6)
+        self.assertAlmostEqual(results[3].standard_error, 0.6764348, places=6)
+        self.assertAlmostEqual(results[3].t_stat, 1.5872510, places=6)
+        self.assertAlmostEqual(results[3].p_value, 0.2533675, places=6)
 
-            self.assertTrue(np.isnan(results[6].standard_error))
-            self.assertTrue(np.isnan(results[6].t_stat))
-            self.assertTrue(np.isnan(results[6].p_value))
+        self.assertTrue(np.isnan(results[6].standard_error))
+        self.assertTrue(np.isnan(results[6].t_stat))
+        self.assertTrue(np.isnan(results[6].p_value))
 
-            self.assertTrue(np.isnan(results[7].standard_error))
-            self.assertTrue(np.isnan(results[8].standard_error))
-            self.assertTrue(np.isnan(results[9].standard_error))
-            self.assertTrue(np.isnan(results[10].standard_error))
+        self.assertTrue(np.isnan(results[7].standard_error))
+        self.assertTrue(np.isnan(results[8].standard_error))
+        self.assertTrue(np.isnan(results[9].standard_error))
+        self.assertTrue(np.isnan(results[10].standard_error))
 
     def test_linear_regression_pl(self):
 
@@ -294,28 +287,26 @@ class Tests(unittest.TestCase):
 
         mt = hl.import_vcf(resource('regressionLinear.vcf'))
 
-        for linreg_function in self.linreg_functions:
+        ht = hl.linear_regression_rows(y=pheno[mt.s].Pheno,
+                             x=hl.pl_dosage(mt.PL),
+                             covariates=[1.0] + list(covariates[mt.s].values()))
 
-            ht = linreg_function(y=pheno[mt.s].Pheno,
-                                 x=hl.pl_dosage(mt.PL),
-                                 covariates=[1.0] + list(covariates[mt.s].values()))
+        results = dict(hl.tuple([ht.locus.position, ht.row]).collect())
 
-            results = dict(hl.tuple([ht.locus.position, ht.row]).collect())
+        self.assertAlmostEqual(results[1].beta, -0.29166985, places=6)
+        self.assertAlmostEqual(results[1].standard_error, 1.2996510, places=6)
+        self.assertAlmostEqual(results[1].t_stat, -0.22442167, places=6)
+        self.assertAlmostEqual(results[1].p_value, 0.84327106, places=6)
 
-            self.assertAlmostEqual(results[1].beta, -0.29166985, places=6)
-            self.assertAlmostEqual(results[1].standard_error, 1.2996510, places=6)
-            self.assertAlmostEqual(results[1].t_stat, -0.22442167, places=6)
-            self.assertAlmostEqual(results[1].p_value, 0.84327106, places=6)
+        self.assertAlmostEqual(results[2].beta, -0.5499320, places=6)
+        self.assertAlmostEqual(results[2].standard_error, 0.3401110, places=6)
+        self.assertAlmostEqual(results[2].t_stat, -1.616919, places=6)
+        self.assertAlmostEqual(results[2].p_value, 0.24728705, places=6)
 
-            self.assertAlmostEqual(results[2].beta, -0.5499320, places=6)
-            self.assertAlmostEqual(results[2].standard_error, 0.3401110, places=6)
-            self.assertAlmostEqual(results[2].t_stat, -1.616919, places=6)
-            self.assertAlmostEqual(results[2].p_value, 0.24728705, places=6)
-
-            self.assertAlmostEqual(results[3].beta, 1.09536219, places=6)
-            self.assertAlmostEqual(results[3].standard_error, 0.6901002, places=6)
-            self.assertAlmostEqual(results[3].t_stat, 1.5872510, places=6)
-            self.assertAlmostEqual(results[3].p_value, 0.2533675, places=6)
+        self.assertAlmostEqual(results[3].beta, 1.09536219, places=6)
+        self.assertAlmostEqual(results[3].standard_error, 0.6901002, places=6)
+        self.assertAlmostEqual(results[3].t_stat, 1.5872510, places=6)
+        self.assertAlmostEqual(results[3].p_value, 0.2533675, places=6)
 
     @fails_service_backend()
     @fails_local_backend() # Because of import_gen
@@ -330,28 +321,27 @@ class Tests(unittest.TestCase):
                                 types={'Pheno': hl.tfloat})
         mt = hl.import_gen(resource('regressionLinear.gen'), sample_file=resource('regressionLinear.sample'))
 
-        for linreg_function in self.linreg_functions:
-            ht = linreg_function(y=pheno[mt.s].Pheno,
-                                 x=hl.gp_dosage(mt.GP),
-                                 covariates=[1.0] + list(covariates[mt.s].values()))
+        ht = hl.linear_regression_rows(y=pheno[mt.s].Pheno,
+                             x=hl.gp_dosage(mt.GP),
+                             covariates=[1.0] + list(covariates[mt.s].values()))
 
-            results = dict(hl.tuple([ht.locus.position, ht.row]).collect())
+        results = dict(hl.tuple([ht.locus.position, ht.row]).collect())
 
-            self.assertAlmostEqual(results[1].beta, -0.29166985, places=4)
-            self.assertAlmostEqual(results[1].standard_error, 1.2996510, places=4)
-            self.assertAlmostEqual(results[1].t_stat, -0.22442167, places=6)
-            self.assertAlmostEqual(results[1].p_value, 0.84327106, places=6)
+        self.assertAlmostEqual(results[1].beta, -0.29166985, places=4)
+        self.assertAlmostEqual(results[1].standard_error, 1.2996510, places=4)
+        self.assertAlmostEqual(results[1].t_stat, -0.22442167, places=6)
+        self.assertAlmostEqual(results[1].p_value, 0.84327106, places=6)
 
-            self.assertAlmostEqual(results[2].beta, -0.5499320, places=4)
-            self.assertAlmostEqual(results[2].standard_error, 0.3401110, places=4)
-            self.assertAlmostEqual(results[2].t_stat, -1.616919, places=6)
-            self.assertAlmostEqual(results[2].p_value, 0.24728705, places=6)
+        self.assertAlmostEqual(results[2].beta, -0.5499320, places=4)
+        self.assertAlmostEqual(results[2].standard_error, 0.3401110, places=4)
+        self.assertAlmostEqual(results[2].t_stat, -1.616919, places=6)
+        self.assertAlmostEqual(results[2].p_value, 0.24728705, places=6)
 
-            self.assertAlmostEqual(results[3].beta, 1.09536219, places=4)
-            self.assertAlmostEqual(results[3].standard_error, 0.6901002, places=4)
-            self.assertAlmostEqual(results[3].t_stat, 1.5872510, places=6)
-            self.assertAlmostEqual(results[3].p_value, 0.2533675, places=6)
-            self.assertTrue(np.isnan(results[6].standard_error))
+        self.assertAlmostEqual(results[3].beta, 1.09536219, places=4)
+        self.assertAlmostEqual(results[3].standard_error, 0.6901002, places=4)
+        self.assertAlmostEqual(results[3].t_stat, 1.5872510, places=6)
+        self.assertAlmostEqual(results[3].p_value, 0.2533675, places=6)
+        self.assertTrue(np.isnan(results[6].standard_error))
 
     def test_linear_regression_equivalence_between_ds_and_gt(self):
         """Test that linear regressions on data converted from dosage to genotype returns the same results"""
@@ -361,13 +351,12 @@ class Tests(unittest.TestCase):
         ds_mt = ds_mt.annotate_cols(**pheno_t[ds_mt.s])
         gt_mt = gt_mt.annotate_cols(**pheno_t[gt_mt.s])
 
-        for linreg_function in self.linreg_functions:
-            ds_results_mt = linreg_function(y=ds_mt.phenotype, x=ds_mt.DS, covariates=[1.0])
-            gt_results_mt = linreg_function(y=gt_mt.phenotype, x=gt_mt.GT.n_alt_alleles(), covariates=[1.0])
-            ds_results_t = ds_results_mt.select(ds_p_value=ds_results_mt.p_value)
-            gt_results_t = gt_results_mt.select(gt_p_value=gt_results_mt.p_value)
-            results_t = ds_results_t.annotate(**gt_results_t[ds_results_t.locus, ds_results_t.alleles])
-            self.assertTrue(all(hl.approx_equal(results_t.ds_p_value, results_t.gt_p_value, nan_same=True).collect()))
+        ds_results_mt = hl.linear_regression_rows(y=ds_mt.phenotype, x=ds_mt.DS, covariates=[1.0])
+        gt_results_mt = hl.linear_regression_rows(y=gt_mt.phenotype, x=gt_mt.GT.n_alt_alleles(), covariates=[1.0])
+        ds_results_t = ds_results_mt.select(ds_p_value=ds_results_mt.p_value)
+        gt_results_t = gt_results_mt.select(gt_p_value=gt_results_mt.p_value)
+        results_t = ds_results_t.annotate(**gt_results_t[ds_results_t.locus, ds_results_t.alleles])
+        self.assertTrue(all(hl.approx_equal(results_t.ds_p_value, results_t.gt_p_value, nan_same=True).collect()))
 
     @fails_service_backend()
     def test_linear_regression_with_import_fam_boolean(self):
@@ -377,28 +366,27 @@ class Tests(unittest.TestCase):
         fam = hl.import_fam(resource('regressionLinear.fam'))
         mt = hl.import_vcf(resource('regressionLinear.vcf'))
 
-        for linreg_function in self.linreg_functions:
-            ht = linreg_function(y=fam[mt.s].is_case,
-                                 x=mt.GT.n_alt_alleles(),
-                                 covariates=[1.0] + list(covariates[mt.s].values()))
+        ht = hl.linear_regression_rows(y=fam[mt.s].is_case,
+                             x=mt.GT.n_alt_alleles(),
+                             covariates=[1.0] + list(covariates[mt.s].values()))
 
-            results = dict(hl.tuple([ht.locus.position, ht.row]).collect())
+        results = dict(hl.tuple([ht.locus.position, ht.row]).collect())
 
-            self.assertAlmostEqual(results[1].beta, -0.28589421, places=6)
-            self.assertAlmostEqual(results[1].standard_error, 1.2739153, places=6)
-            self.assertAlmostEqual(results[1].t_stat, -0.22442167, places=6)
-            self.assertAlmostEqual(results[1].p_value, 0.84327106, places=6)
+        self.assertAlmostEqual(results[1].beta, -0.28589421, places=6)
+        self.assertAlmostEqual(results[1].standard_error, 1.2739153, places=6)
+        self.assertAlmostEqual(results[1].t_stat, -0.22442167, places=6)
+        self.assertAlmostEqual(results[1].p_value, 0.84327106, places=6)
 
-            self.assertAlmostEqual(results[2].beta, -0.5417647, places=6)
-            self.assertAlmostEqual(results[2].standard_error, 0.3350599, places=6)
-            self.assertAlmostEqual(results[2].t_stat, -1.616919, places=6)
-            self.assertAlmostEqual(results[2].p_value, 0.24728705, places=6)
+        self.assertAlmostEqual(results[2].beta, -0.5417647, places=6)
+        self.assertAlmostEqual(results[2].standard_error, 0.3350599, places=6)
+        self.assertAlmostEqual(results[2].t_stat, -1.616919, places=6)
+        self.assertAlmostEqual(results[2].p_value, 0.24728705, places=6)
 
-            self.assertTrue(np.isnan(results[6].standard_error))
-            self.assertTrue(np.isnan(results[7].standard_error))
-            self.assertTrue(np.isnan(results[8].standard_error))
-            self.assertTrue(np.isnan(results[9].standard_error))
-            self.assertTrue(np.isnan(results[10].standard_error))
+        self.assertTrue(np.isnan(results[6].standard_error))
+        self.assertTrue(np.isnan(results[7].standard_error))
+        self.assertTrue(np.isnan(results[8].standard_error))
+        self.assertTrue(np.isnan(results[9].standard_error))
+        self.assertTrue(np.isnan(results[10].standard_error))
 
     @fails_service_backend()
     def test_linear_regression_with_import_fam_quant(self):
@@ -410,28 +398,27 @@ class Tests(unittest.TestCase):
                             missing='0')
         mt = hl.import_vcf(resource('regressionLinear.vcf'))
 
-        for linreg_function in self.linreg_functions:
-            ht = linreg_function(y=fam[mt.s].quant_pheno,
-                                 x=mt.GT.n_alt_alleles(),
-                                 covariates=[1.0] + list(covariates[mt.s].values()))
+        ht = hl.linear_regression_rows(y=fam[mt.s].quant_pheno,
+                             x=mt.GT.n_alt_alleles(),
+                             covariates=[1.0] + list(covariates[mt.s].values()))
 
-            results = dict(hl.tuple([ht.locus.position, ht.row]).collect())
+        results = dict(hl.tuple([ht.locus.position, ht.row]).collect())
 
-            self.assertAlmostEqual(results[1].beta, -0.28589421, places=6)
-            self.assertAlmostEqual(results[1].standard_error, 1.2739153, places=6)
-            self.assertAlmostEqual(results[1].t_stat, -0.22442167, places=6)
-            self.assertAlmostEqual(results[1].p_value, 0.84327106, places=6)
+        self.assertAlmostEqual(results[1].beta, -0.28589421, places=6)
+        self.assertAlmostEqual(results[1].standard_error, 1.2739153, places=6)
+        self.assertAlmostEqual(results[1].t_stat, -0.22442167, places=6)
+        self.assertAlmostEqual(results[1].p_value, 0.84327106, places=6)
 
-            self.assertAlmostEqual(results[2].beta, -0.5417647, places=6)
-            self.assertAlmostEqual(results[2].standard_error, 0.3350599, places=6)
-            self.assertAlmostEqual(results[2].t_stat, -1.616919, places=6)
-            self.assertAlmostEqual(results[2].p_value, 0.24728705, places=6)
+        self.assertAlmostEqual(results[2].beta, -0.5417647, places=6)
+        self.assertAlmostEqual(results[2].standard_error, 0.3350599, places=6)
+        self.assertAlmostEqual(results[2].t_stat, -1.616919, places=6)
+        self.assertAlmostEqual(results[2].p_value, 0.24728705, places=6)
 
-            self.assertTrue(np.isnan(results[6].standard_error))
-            self.assertTrue(np.isnan(results[7].standard_error))
-            self.assertTrue(np.isnan(results[8].standard_error))
-            self.assertTrue(np.isnan(results[9].standard_error))
-            self.assertTrue(np.isnan(results[10].standard_error))
+        self.assertTrue(np.isnan(results[6].standard_error))
+        self.assertTrue(np.isnan(results[7].standard_error))
+        self.assertTrue(np.isnan(results[8].standard_error))
+        self.assertTrue(np.isnan(results[9].standard_error))
+        self.assertTrue(np.isnan(results[10].standard_error))
 
     def test_linear_regression_multi_pheno_same(self):
         covariates = hl.import_table(resource('regressionLinear.cov'),
@@ -444,21 +431,20 @@ class Tests(unittest.TestCase):
 
         mt = hl.import_vcf(resource('regressionLinear.vcf'))
 
-        for linreg_function in self.linreg_functions:
-            single = linreg_function(y=pheno[mt.s].Pheno,
-                                     x=mt.GT.n_alt_alleles(),
-                                     covariates=list(covariates[mt.s].values()))
-            multi = linreg_function(y=[pheno[mt.s].Pheno, pheno[mt.s].Pheno],
-                                    x=mt.GT.n_alt_alleles(),
-                                    covariates=list(covariates[mt.s].values()))
+        single = hl.linear_regression_rows(y=pheno[mt.s].Pheno,
+                                 x=mt.GT.n_alt_alleles(),
+                                 covariates=list(covariates[mt.s].values()))
+        multi = hl.linear_regression_rows(y=[pheno[mt.s].Pheno, pheno[mt.s].Pheno],
+                                x=mt.GT.n_alt_alleles(),
+                                covariates=list(covariates[mt.s].values()))
 
-            def eq(x1, x2):
-                return (hl.is_nan(x1) & hl.is_nan(x2)) | (hl.abs(x1 - x2) < 1e-4)
+        def eq(x1, x2):
+            return (hl.is_nan(x1) & hl.is_nan(x2)) | (hl.abs(x1 - x2) < 1e-4)
 
-            combined = single.annotate(multi = multi[single.key])
-            self.assertTrue(combined.aggregate(hl.agg.all(
-                eq(combined.p_value, combined.multi.p_value[0]) &
-                eq(combined.multi.p_value[0], combined.multi.p_value[1]))))
+        combined = single.annotate(multi = multi[single.key])
+        self.assertTrue(combined.aggregate(hl.agg.all(
+            eq(combined.p_value, combined.multi.p_value[0]) &
+            eq(combined.multi.p_value[0], combined.multi.p_value[1]))))
 
     logreg_functions = [hl.logistic_regression_rows, hl._logistic_regression_rows_nd] if backend_name == "spark" else [hl._logistic_regression_rows_nd]
 
@@ -483,18 +469,19 @@ class Tests(unittest.TestCase):
         mt = mt.annotate_entries(x=hl.coalesce(mt.GT.n_alt_alleles(), 1.0))
         my_covs = [1.0] + list(covariates[mt.s].values())
 
-        ht_with_weights = hl._linear_regression_rows_nd(y=mt.y,
-                                          x=mt.x,
-                                          covariates=my_covs,
-                                          weights=mt.col_idx)
+        ht_with_weights = hl.linear_regression_rows(y=mt.y,
+                                                    x=mt.x,
+                                                    covariates=my_covs,
+                                                    weights=mt.col_idx)
 
-        ht_pre_weighted_1 = hl._linear_regression_rows_nd(y=mt.y * hl.sqrt(mt.col_idx),
-                                          x=mt.x * hl.sqrt(mt.col_idx),
-                                          covariates=list(map(lambda e: e * hl.sqrt(mt.col_idx), my_covs)))
+        ht_pre_weighted_1 = hl.linear_regression_rows(y=mt.y * hl.sqrt(mt.col_idx),
+                                                      x=mt.x * hl.sqrt(mt.col_idx),
+                                                      covariates=list(map(lambda e: e * hl.sqrt(mt.col_idx), my_covs)))
 
-        ht_pre_weighted_2 = hl._linear_regression_rows_nd(y=mt.y * hl.sqrt(mt.col_idx + 5),
-                                                          x=mt.x * hl.sqrt(mt.col_idx + 5),
-                                                          covariates=list(map(lambda e: e * hl.sqrt(mt.col_idx + 5), my_covs)))
+        ht_pre_weighted_2 = hl.linear_regression_rows(y=mt.y * hl.sqrt(mt.col_idx + 5),
+                                                      x=mt.x * hl.sqrt(mt.col_idx + 5),
+                                                      covariates=list(
+                                                          map(lambda e: e * hl.sqrt(mt.col_idx + 5), my_covs)))
 
         ht_from_agg = mt.annotate_rows(my_linreg=hl.agg.linreg(mt.y, [1, mt.x] + list(covariates[mt.s].values()), weight=mt.col_idx)).rows()
 
@@ -513,10 +500,10 @@ class Tests(unittest.TestCase):
         assert equal_with_nans(betas_with_weights, betas_pre_weighted_1)
         assert equal_with_nans(betas_with_weights, betas_from_agg)
 
-        ht_with_multiple_weights = hl._linear_regression_rows_nd(y=[[mt.y], [hl.abs(mt.y)]],
-                                                                 x=mt.x,
-                                                                 covariates=my_covs,
-                                                                 weights=[mt.col_idx, mt.col_idx + 5])
+        ht_with_multiple_weights = hl.linear_regression_rows(y=[[mt.y], [hl.abs(mt.y)]],
+                                                             x=mt.x,
+                                                             covariates=my_covs,
+                                                             weights=[mt.col_idx, mt.col_idx + 5])
 
         # Check that preweighted 1 and preweighted 2 match up with fields 1 and 2 of multiple
         multi_weight_betas = ht_with_multiple_weights.beta.collect()
@@ -525,14 +512,14 @@ class Tests(unittest.TestCase):
 
         assert np.array(multi_weight_betas).shape == (10, 2, 1)
 
-        assert(equal_with_nans(multi_weight_betas_1, betas_pre_weighted_1))
-        assert(equal_with_nans(multi_weight_betas_2, betas_pre_weighted_2))
+        assert (equal_with_nans(multi_weight_betas_1, betas_pre_weighted_1))
+        assert (equal_with_nans(multi_weight_betas_2, betas_pre_weighted_2))
 
         # Now making sure that missing weights get excluded.
-        ht_with_missing_weights = hl._linear_regression_rows_nd(y=[[mt.y], [hl.abs(mt.y)]],
-                                                                 x=mt.x,
-                                                                 covariates=[1],
-                                                                 weights=[weights[mt.s].Weight1, weights[mt.s].Weight2])
+        ht_with_missing_weights = hl.linear_regression_rows(y=[[mt.y], [hl.abs(mt.y)]],
+                                                            x=mt.x,
+                                                            covariates=[1],
+                                                            weights=[weights[mt.s].Weight1, weights[mt.s].Weight2])
 
         mt_with_missing_weights = mt.annotate_cols(Weight1 = weights[mt.s].Weight1, Weight2 = weights[mt.s].Weight2)
         mt_with_missing_weight1_filtered = mt_with_missing_weights.filter_cols(hl.is_defined(mt_with_missing_weights.Weight1))
@@ -589,20 +576,20 @@ class Tests(unittest.TestCase):
         mt = hl.utils.range_matrix_table(20, 10).annotate_entries(x=2)
         mt = mt.annotate_cols(**{f"col_{i}": i for i in range(4)})
 
-        self.assertRaises(ValueError, lambda: hl._linear_regression_rows_nd(y=[[mt.col_1]],
-                                                                                x=mt.x,
-                                                                                covariates=[1],
-                                                                                weights=[mt.col_2, mt.col_3]))
+        self.assertRaises(ValueError, lambda: hl.linear_regression_rows(y=[[mt.col_1]],
+                                                                        x=mt.x,
+                                                                        covariates=[1],
+                                                                        weights=[mt.col_2, mt.col_3]))
 
-        self.assertRaises(ValueError, lambda: hl._linear_regression_rows_nd(y=[mt.col_1],
-                                                                                x=mt.x,
-                                                                                covariates=[1],
-                                                                                weights=[mt.col_2]))
+        self.assertRaises(ValueError, lambda: hl.linear_regression_rows(y=[mt.col_1],
+                                                                        x=mt.x,
+                                                                        covariates=[1],
+                                                                        weights=[mt.col_2]))
 
-        self.assertRaises(ValueError, lambda: hl._linear_regression_rows_nd(y=[[mt.col_1]],
-                                                                            x=mt.x,
-                                                                            covariates=[1],
-                                                                            weights=mt.col_2))
+        self.assertRaises(ValueError, lambda: hl.linear_regression_rows(y=[[mt.col_1]],
+                                                                        x=mt.x,
+                                                                        covariates=[1],
+                                                                        weights=mt.col_2))
 
 
 
