@@ -107,8 +107,6 @@ abstract class BlockMatrixToValueFunction {
 
 object RelationalFunctions {
   implicit val formats = RelationalSpec.formats + ShortTypeHints(List(
-    classOf[LinearRegressionRowsSingle],
-    classOf[LinearRegressionRowsChained],
     classOf[TableFilterPartitions],
     classOf[MatrixFilterPartitions],
     classOf[TableCalculateNewPartitions],

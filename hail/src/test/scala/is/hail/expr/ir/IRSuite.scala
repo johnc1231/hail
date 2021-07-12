@@ -3391,9 +3391,6 @@ class IRSuite extends HailSuite {
   def relationalFunctionsData(): Array[Array[Any]] = Array(
     Array(TableFilterPartitions(Array(1, 2, 3), keep = true)),
     Array(VEP(fs, "src/test/resources/dummy_vep_config.json", false, 1, true)),
-    Array(WrappedMatrixToTableFunction(LinearRegressionRowsSingle(Array("foo"), "bar", Array("baz"), 1, Array("a", "b")), "foo", "bar", FastIndexedSeq("ck"))),
-    Array(LinearRegressionRowsSingle(Array("foo"), "bar", Array("baz"), 1, Array("a", "b"))),
-    Array(LinearRegressionRowsChained(FastIndexedSeq(FastIndexedSeq("foo")), "bar", Array("baz"), 1, Array("a", "b"))),
     Array(LogisticRegression("firth", Array("a", "b"), "c", Array("d", "e"), Array("f", "g"))),
     Array(PoissonRegression("firth", "a", "c", Array("d", "e"), Array("f", "g"))),
     Array(Skat("a", "b", "c", "d", Array("e", "f"), false, 1, 0.1, 100)),
